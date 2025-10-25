@@ -6,6 +6,7 @@ import WorkflowDashboard from './components/WorkflowDashboard'
 import WorkflowCanvas from './components/WorkflowCanvas'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import socketClient from './services/socketClient'
+import { workflowService } from './services/workflowService'
 import './App.css'
 
 function AppContent() {
@@ -53,12 +54,39 @@ function AppContent() {
     }
   }, [])
 
-  const handleGestureDetected = (gestureName, confidence) => {
-    setLastGesture({ name: gestureName, confidence, time: Date.now() })
-    console.log('Gesture detected:', gestureName, 'Confidence:', confidence)
+  // Auto-load active workflow on mount
+  useEffect(() => {
+    if (!user) return
 
-    // Send gesture to server via Socket.IO
-    socketClient.sendGesture(gestureName, confidence)
+    const loadActiveWorkflow = async () => {
+      try {
+        const activeWorkflow = await workflowService.getActiveWorkflow()
+
+        if (activeWorkflow) {
+          console.log('🔄 Auto-loading active workflow:', activeWorkflow.name)
+
+          // Send workflow to server
+          await socketClient.loadWorkflow(activeWorkflow.name, activeWorkflow.workflow_data)
+
+          // Turn on camera
+          setCameraActive(true)
+
+          console.log('✅ Active workflow auto-loaded successfully')
+        }
+      } catch (error) {
+        console.error('Failed to auto-load active workflow:', error)
+      }
+    }
+
+    loadActiveWorkflow()
+  }, [user])
+
+  const handleGestureDetected = (gestureName, confidence, position = null) => {
+    setLastGesture({ name: gestureName, confidence, time: Date.now() })
+    console.log('Gesture detected:', gestureName, 'Confidence:', confidence, 'Position:', position)
+
+    // Send gesture to server via Socket.IO with position data
+    socketClient.sendGesture(gestureName, confidence, position)
   }
 
   const handleModeChange = (newMode) => {
