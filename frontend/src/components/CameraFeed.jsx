@@ -61,6 +61,7 @@ const CameraFeed = ({ onGestureDetected }) => {
   const lastTriggeredGestureRef = useRef({ name: null, time: 0 })
   const continuousMotionActiveRef = useRef(false) // Lock for continuous motion
   const gestureBufferRef = useRef([]) // Buffer to smooth gesture detection over multiple frames
+  const palmPointWaitingRef = useRef(null) // Track palm/point waiting for swipe (AI Mode feature)
 
   useEffect(() => {
     let camera = null
@@ -334,14 +335,15 @@ const CameraFeed = ({ onGestureDetected }) => {
         const deltaX = currentX - previousX
         const deltaTime = now - previousHandPositionRef.current.timestamp
 
-        // Swipe detection: FAST movement wins over static gestures
-        const velocity = Math.abs(deltaX) / (deltaTime / 1000)
-
-        if (deltaTime > 50 && deltaTime < 400 && velocity > 0.4) {
-          if (deltaX > 0.1) {
+        // Swipe detection: RELAXED thresholds for easier detection
+        // If hand moves more than 5% of screen width in reasonable time = swipe
+        if (deltaTime > 20 && deltaTime < 1000) {
+          if (deltaX > 0.05) {
             gestureName = 'swipe_right'
-          } else if (deltaX < -0.1) {
+            console.log('🌊🌊🌊 SWIPE RIGHT TRIGGERED!', { deltaX: deltaX.toFixed(3), deltaTime })
+          } else if (deltaX < -0.05) {
             gestureName = 'swipe_left'
+            console.log('🌊🌊🌊 SWIPE LEFT TRIGGERED!', { deltaX: deltaX.toFixed(3), deltaTime })
           }
         }
       }

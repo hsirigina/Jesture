@@ -4,14 +4,15 @@ import { Server } from 'socket.io'
 import cors from 'cors'
 import { keyboard, Key, mouse, Button, screen } from '@nut-tree-fork/nut-js'
 import * as govee from './goveeController.js'
+import fetch from 'node-fetch'
 
 const app = express()
 const httpServer = createServer(app)
 
-// Configure Socket.IO with CORS
+// Configure Socket.IO with CORS (allow both 5173 and 5174)
 const io = new Server(httpServer, {
   cors: {
-    origin: 'http://localhost:5173',
+    origin: ['http://localhost:5173', 'http://localhost:5174'],
     methods: ['GET', 'POST']
   }
 })
@@ -24,6 +25,11 @@ const clients = new Map()
 
 // Store active workflow mappings (loaded from database)
 let activeWorkflowMappings = new Map() // gesture -> action config
+
+// Store AI Mode state
+let aiModeActive = false
+let aiModeSessionId = null
+const AI_AGENT_URL = 'http://127.0.0.1:8001'  // Use IPv4 directly to avoid localhost resolution issues
 
 // Store last execution time for cooldown tracking
 let gestureLastExecuted = new Map() // gesture -> timestamp
@@ -504,6 +510,137 @@ io.on('connection', (socket) => {
       type: data.type,
       message: `Device ${data.type} added successfully`
     })
+  })
+
+  // ===== AI MODE HANDLERS =====
+
+  // Activate AI Mode - sends request to AI agent
+  socket.on('ai-mode:activate', async (data) => {
+    console.log('🤖 AI Mode activation requested:', data)
+
+    try {
+      // Generate session ID
+      const sessionId = `ai-session-${Date.now()}`
+
+      // Send activation request to AI agent (simplified endpoint)
+      const response = await fetch('http://127.0.0.1:8001/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: data.user_id || socket.id,
+          session_id: sessionId
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        aiModeActive = true
+        aiModeSessionId = sessionId
+
+        console.log('✅ AI Mode activated:', result)
+
+        socket.emit('ai-mode:activated', {
+          success: true,
+          session_id: sessionId,
+          message: 'AI Mode is now active'
+        })
+      } else {
+        throw new Error('AI agent not responding')
+      }
+    } catch (error) {
+      console.error('❌ Failed to activate AI Mode:', error.message)
+      socket.emit('ai-mode:error', {
+        success: false,
+        message: 'Could not connect to AI agent. Make sure it\'s running on port 8001.'
+      })
+    }
+  })
+
+  // Deactivate AI Mode
+  socket.on('ai-mode:deactivate', () => {
+    console.log('🛑 AI Mode deactivated')
+    aiModeActive = false
+    aiModeSessionId = null
+
+    socket.emit('ai-mode:deactivated', {
+      success: true,
+      message: 'AI Mode is now off'
+    })
+  })
+
+  // AI Mode gesture handler - sends gesture to AI agent for contextual interpretation
+  socket.on('ai-gesture:detected', async (data) => {
+    if (!aiModeActive) {
+      socket.emit('ai-mode:error', { message: 'AI Mode is not active' })
+      return
+    }
+
+    console.log('🤚 AI Mode gesture detected:', data.gesture)
+
+    try {
+      // Send gesture to AI agent (simplified endpoint)
+      const response = await fetch('http://127.0.0.1:8001/gesture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gesture: data.gesture,
+          confidence: data.confidence,
+          timestamp: new Date().toISOString()
+        })
+      })
+
+      if (response.ok) {
+        const aiDecision = await response.json()
+        console.log('🧠 AI Decision:', aiDecision)
+
+        // Execute the action decided by AI
+        if (aiDecision.action === 'keyboard' && aiDecision.parameters?.key) {
+          const keyName = aiDecision.parameters.key
+
+          // Map common key names to nut-js Key enum
+          const keyMap = {
+            'ArrowRight': Key.Right,
+            'ArrowLeft': Key.Left,
+            'ArrowUp': Key.Up,
+            'ArrowDown': Key.Down,
+            'Space': Key.Space,
+            'Escape': Key.Escape,
+            'Enter': Key.Enter,
+            'f': Key.F,
+            'j': Key.J,
+            'l': Key.L
+          }
+
+          const key = keyMap[keyName]
+
+          if (key) {
+            // It's a mapped key - use pressKey/releaseKey
+            await keyboard.pressKey(key)
+            await keyboard.releaseKey(key)
+            console.log(`✅ Executed AI action (special key): ${keyName}`)
+          } else {
+            // It's a regular character - use type
+            await keyboard.type(keyName)
+            console.log(`✅ Executed AI action (character): ${keyName}`)
+          }
+
+          // Send result back to frontend
+          socket.emit('ai-action:completed', {
+            gesture: data.gesture,
+            action: keyName,
+            reasoning: aiDecision.reasoning,
+            success: true
+          })
+        }
+      } else {
+        throw new Error('AI agent error')
+      }
+    } catch (error) {
+      console.error('❌ AI gesture processing failed:', error.message)
+      socket.emit('ai-mode:error', {
+        message: 'Failed to process gesture with AI'
+      })
+    }
   })
 
   // Disconnect handler

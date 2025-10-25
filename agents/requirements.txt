@@ -1,0 +1,16 @@
+# Web server (for simple AI agent)
+flask>=2.3.0
+flask-cors>=4.0.0
+
+# AI Models
+google-generativeai>=0.3.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Optional: Fetch.ai uAgents Framework (for advanced features)
+# uagents>=0.10.0
+# pydantic>=1.10.0,<2.0.0
+
+# Optional: Anthropic Claude (for future swap)
+# anthropic>=0.8.0

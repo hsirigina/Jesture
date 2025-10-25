@@ -4,6 +4,7 @@ import MiniPanel from './components/MiniPanel'
 import Auth from './components/Auth'
 import WorkflowDashboard from './components/WorkflowDashboard'
 import WorkflowCanvas from './components/WorkflowCanvas'
+import AIMode from './components/AIMode'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import socketClient from './services/socketClient'
 import { workflowService } from './services/workflowService'
@@ -19,6 +20,7 @@ function AppContent() {
   const [isMiniWindow, setIsMiniWindow] = useState(false)
   const [controlMode, setControlMode] = useState('presentation') // 'presentation' or 'light'
   const [cameraActive, setCameraActive] = useState(false) // Only run camera when workflow is active
+  const [aiModeActive, setAiModeActive] = useState(false) // AI Mode state
 
   useEffect(() => {
     // Connect to Socket.IO server
@@ -81,12 +83,33 @@ function AppContent() {
     loadActiveWorkflow()
   }, [user])
 
+  // Auto-enable camera when AI Mode is activated
+  useEffect(() => {
+    if (aiModeActive && !cameraActive) {
+      console.log('🎥 AI Mode activated - turning on camera')
+      setCameraActive(true)
+    }
+  }, [aiModeActive])
+
+  // MERGED: Keep useCallback from friend's code, add AI Mode routing from your code
   const handleGestureDetected = useCallback((gestureName, confidence, position = null) => {
     setLastGesture({ name: gestureName, confidence, time: Date.now() })
 
-    // Send gesture to server via Socket.IO with position data
-    socketClient.sendGesture(gestureName, confidence, position)
-  }, [])
+    // Route gesture based on active mode
+    if (aiModeActive) {
+      // Send to AI agent for context-aware interpretation
+      console.log('🤖 Routing gesture to AI agent:', gestureName)
+      console.log('📡 Socket connected?', socketClient.socket?.connected)
+      socketClient.emit('ai-gesture:detected', {
+        gesture: gestureName,
+        confidence: confidence
+      })
+      console.log('📤 Emitted ai-gesture:detected event')
+    } else {
+      // Send gesture to server via Socket.IO with position data (normal workflow mode)
+      socketClient.sendGesture(gestureName, confidence, position)
+    }
+  }, [aiModeActive]) // Add aiModeActive to dependency array
 
   const handleModeChange = (newMode) => {
     setControlMode(newMode)
@@ -125,6 +148,12 @@ function AppContent() {
           }}
           onWorkflowActivated={() => setCameraActive(true)}
           onWorkflowDeactivated={() => setCameraActive(false)}
+        />
+        {/* AI Mode - Fixed position, won't conflict */}
+        <AIMode
+          isGestureDetectionActive={cameraActive}
+          aiModeActive={aiModeActive}
+          onAIModeChange={setAiModeActive}
         />
       </>
     )

@@ -157,6 +157,13 @@ class SocketClient {
 
   // Event listener system
   on(event, callback) {
+    // First check if this is a socket event we should forward
+    if (this.socket && !this.listeners.has(event)) {
+      this.socket.on(event, (data) => {
+        this.emit(event, data)
+      })
+    }
+
     if (!this.listeners.has(event)) {
       this.listeners.set(event, [])
     }
@@ -174,11 +181,30 @@ class SocketClient {
     }
   }
 
-  // Emit event to listeners
+  // Remove event listener
+  off(event, callback) {
+    const callbacks = this.listeners.get(event)
+    if (callbacks && callback) {
+      const index = callbacks.indexOf(callback)
+      if (index > -1) {
+        callbacks.splice(index, 1)
+      }
+    } else if (!callback) {
+      // Remove all listeners for this event
+      this.listeners.delete(event)
+    }
+  }
+
+  // Emit event to listeners (internal use)
   emit(event, data) {
     const callbacks = this.listeners.get(event)
     if (callbacks) {
       callbacks.forEach(callback => callback(data))
+    }
+
+    // Also emit to socket if connected (for server events)
+    if (this.socket && this.connected && !this.listeners.has(event)) {
+      this.socket.emit(event, data)
     }
   }
 }
