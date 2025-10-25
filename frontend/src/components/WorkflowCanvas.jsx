@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -6,6 +6,8 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
   addEdge,
+  useReactFlow,
+  ReactFlowProvider,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { workflowService } from '../services/workflowService'
@@ -22,45 +24,52 @@ const GESTURE_INPUTS = [
   { id: 'peace', label: 'Peace', gesture: 'peace' },
 ]
 
-// Available output action nodes
+// Available output action nodes (consolidated to generic nodes)
 const OUTPUT_ACTIONS = [
   {
-    id: 'type_hello',
-    label: 'Type "hello"',
+    id: 'keyboard_action',
+    label: 'Keyboard Action',
     category: 'keyboard',
-    config: { action: 'typeText', text: 'hello' },
+    actionType: null, // User selects: 'typeText' or 'pressKey'
+    config: {},
   },
   {
-    id: 'keyboard_key',
-    label: 'Press Key',
-    category: 'keyboard',
-    config: { key: 'Right' },
+    id: 'mouse_action',
+    label: 'Mouse Action',
+    category: 'mouse',
+    actionType: null, // User selects: 'click', 'rightClick', 'doubleClick', 'scrollUp', 'scrollDown'
+    config: {},
   },
   {
-    id: 'light_on',
-    label: 'Lights ON',
+    id: 'light_action',
+    label: 'Light Action',
     category: 'light',
-    config: { action: 'turnOn' },
-  },
-  {
-    id: 'light_off',
-    label: 'Lights OFF',
-    category: 'light',
-    config: { action: 'turnOff' },
-  },
-  {
-    id: 'light_brightness',
-    label: 'Set Brightness',
-    category: 'light',
-    config: { action: 'setBrightness', value: 50 },
-  },
-  {
-    id: 'light_color',
-    label: 'Cycle Color',
-    category: 'light',
-    config: { action: 'colorCycle' },
+    actionType: null, // User selects: 'turnOn', 'turnOff', 'setBrightness', 'colorCycle'
+    config: {},
   },
 ]
+
+// Action type options for each category
+const ACTION_TYPE_OPTIONS = {
+  keyboard: [
+    { value: 'typeText', label: 'Type Text', defaultConfig: { action: 'typeText', text: '' } },
+    { value: 'pressKey', label: 'Press Key', defaultConfig: { key: 'Right' } },
+  ],
+  mouse: [
+    { value: 'moveCursor', label: 'Move Cursor (Hand Tracking)', defaultConfig: { action: 'moveCursor' } },
+    { value: 'click', label: 'Left Click', defaultConfig: { action: 'click' } },
+    { value: 'rightClick', label: 'Right Click', defaultConfig: { action: 'rightClick' } },
+    { value: 'doubleClick', label: 'Double Click', defaultConfig: { action: 'doubleClick' } },
+    { value: 'scrollUp', label: 'Scroll Up', defaultConfig: { action: 'scrollUp', amount: 3 } },
+    { value: 'scrollDown', label: 'Scroll Down', defaultConfig: { action: 'scrollDown', amount: 3 } },
+  ],
+  light: [
+    { value: 'turnOn', label: 'Turn On', defaultConfig: { action: 'turnOn' } },
+    { value: 'turnOff', label: 'Turn Off', defaultConfig: { action: 'turnOff' } },
+    { value: 'setBrightness', label: 'Set Brightness', defaultConfig: { action: 'setBrightness', value: 50 } },
+    { value: 'colorCycle', label: 'Cycle Color', defaultConfig: { action: 'colorCycle' } },
+  ],
+}
 
 // Middleware/modifier nodes (go between input and output)
 const MIDDLEWARE_NODES = [
@@ -81,6 +90,8 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
   const [selectedNode, setSelectedNode] = useState(null)
   const [saving, setSaving] = useState(false)
   const [nodeIdCounter, setNodeIdCounter] = useState(1)
+  const reactFlowWrapper = useRef(null)
+  const { screenToFlowPosition } = useReactFlow()
 
   // Load workflow if editing existing
   useEffect(() => {
@@ -121,6 +132,28 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
   const handleDragStart = (event, nodeType, nodeData) => {
     event.dataTransfer.setData('application/reactflow', JSON.stringify({ nodeType, nodeData }))
     event.dataTransfer.effectAllowed = 'move'
+
+    // Create a custom drag image that looks like the actual node
+    const dragImage = document.createElement('div')
+    dragImage.style.position = 'absolute'
+    dragImage.style.top = '-1000px'
+    dragImage.style.padding = '10px 20px'
+    dragImage.style.borderRadius = '8px'
+    dragImage.style.backgroundColor = '#fff'
+    dragImage.style.border = nodeType === 'input' ? '2px solid #4ade80' :
+                            nodeType === 'modifier' ? '2px solid #fb923c' :
+                            '2px solid #60a5fa'
+    dragImage.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'
+    dragImage.style.fontFamily = 'system-ui, -apple-system, sans-serif'
+    dragImage.style.fontSize = '14px'
+    dragImage.style.whiteSpace = 'nowrap'
+    dragImage.textContent = nodeData.label
+
+    document.body.appendChild(dragImage)
+    event.dataTransfer.setDragImage(dragImage, dragImage.offsetWidth / 2, dragImage.offsetHeight / 2)
+
+    // Clean up after drag starts
+    setTimeout(() => document.body.removeChild(dragImage), 0)
   }
 
   const onDragOver = useCallback((event) => {
@@ -133,10 +166,12 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
       event.preventDefault()
 
       const data = JSON.parse(event.dataTransfer.getData('application/reactflow'))
-      const position = {
-        x: event.clientX - 250, // Offset for sidebar
-        y: event.clientY - 100,
-      }
+
+      // Convert screen coordinates to flow coordinates
+      const position = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      })
 
       const newNode = {
         id: `node-${nodeIdCounter}`,
@@ -152,7 +187,7 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
       setNodes((nds) => nds.concat(newNode))
       setNodeIdCounter(nodeIdCounter + 1)
     },
-    [nodeIdCounter, setNodes]
+    [nodeIdCounter, setNodes, screenToFlowPosition]
   )
 
   const handleSave = async () => {
@@ -211,6 +246,34 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
                 ...node.data.config,
                 [key]: value
               }
+            }
+          }
+          setSelectedNode(updated)
+          return updated
+        }
+        return node
+      })
+    )
+  }
+
+  const handleActionTypeChange = (actionType) => {
+    if (!selectedNode) return
+
+    const category = selectedNode.data.category
+    const typeOption = ACTION_TYPE_OPTIONS[category]?.find(opt => opt.value === actionType)
+
+    if (!typeOption) return
+
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === selectedNode.id) {
+          const updated = {
+            ...node,
+            data: {
+              ...node.data,
+              actionType,
+              config: { ...typeOption.defaultConfig },
+              label: typeOption.label // Update label to match action type
             }
           }
           setSelectedNode(updated)
@@ -309,7 +372,8 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
                   onDragStart={(e) => handleDragStart(e, 'output', action)}
                 >
                   <span className="node-icon">
-                    {action.category === 'keyboard' ? '⌨️' : '💡'}
+                    {action.category === 'keyboard' ? '⌨️' :
+                     action.category === 'mouse' ? '🖱️' : '💡'}
                   </span>
                   <span className="node-label">{action.label}</span>
                 </div>
@@ -383,11 +447,126 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
                 </div>
               )}
 
-              {/* Other config (read-only for now) */}
-              {selectedNode.data.config && selectedNode.data.category !== 'modifier' && (
+              {/* Action Type Selector for Output Nodes */}
+              {(selectedNode.data.category === 'keyboard' || selectedNode.data.category === 'mouse' || selectedNode.data.category === 'light') && (
                 <div className="config-section">
-                  <label>Configuration</label>
-                  <pre>{JSON.stringify(selectedNode.data.config, null, 2)}</pre>
+                  <label>Action Type</label>
+                  <select
+                    value={selectedNode.data.actionType || ''}
+                    onChange={(e) => handleActionTypeChange(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      border: '2px solid #e0e0e0',
+                      borderRadius: '4px',
+                      fontSize: '1rem',
+                      backgroundColor: selectedNode.data.actionType ? '#fff' : '#fff3cd'
+                    }}
+                  >
+                    <option value="">-- Select Action Type --</option>
+                    {ACTION_TYPE_OPTIONS[selectedNode.data.category]?.map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {!selectedNode.data.actionType && (
+                    <p style={{ fontSize: '0.8rem', color: '#856404', marginTop: '0.5rem' }}>
+                      ⚠️ Please select an action type
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Keyboard - Type Text Config */}
+              {selectedNode.data.category === 'keyboard' && selectedNode.data.actionType === 'typeText' && (
+                <div className="config-section">
+                  <label>Text to Type</label>
+                  <input
+                    type="text"
+                    value={selectedNode.data.config.text || ''}
+                    onChange={(e) => handleUpdateNodeConfig('text', e.target.value)}
+                    placeholder="Enter text..."
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      border: '2px solid #e0e0e0',
+                      borderRadius: '4px',
+                      fontSize: '1rem'
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Keyboard - Press Key Config */}
+              {selectedNode.data.category === 'keyboard' && selectedNode.data.actionType === 'pressKey' && (
+                <div className="config-section">
+                  <label>Key to Press</label>
+                  <select
+                    value={selectedNode.data.config.key || 'Right'}
+                    onChange={(e) => handleUpdateNodeConfig('key', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      border: '2px solid #e0e0e0',
+                      borderRadius: '4px',
+                      fontSize: '1rem'
+                    }}
+                  >
+                    <option value="Right">Right Arrow</option>
+                    <option value="Left">Left Arrow</option>
+                    <option value="Up">Up Arrow</option>
+                    <option value="Down">Down Arrow</option>
+                    <option value="Space">Space</option>
+                    <option value="Enter">Enter</option>
+                    <option value="Escape">Escape</option>
+                    <option value="F5">F5</option>
+                    <option value="Tab">Tab</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Mouse - Scroll Amount Config */}
+              {selectedNode.data.category === 'mouse' && (selectedNode.data.actionType === 'scrollUp' || selectedNode.data.actionType === 'scrollDown') && (
+                <div className="config-section">
+                  <label>Scroll Amount (lines)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={selectedNode.data.config.amount || 3}
+                    onChange={(e) => handleUpdateNodeConfig('amount', parseInt(e.target.value))}
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      border: '2px solid #e0e0e0',
+                      borderRadius: '4px',
+                      fontSize: '1rem'
+                    }}
+                  />
+                  <p style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.5rem' }}>
+                    Number of lines to scroll
+                  </p>
+                </div>
+              )}
+
+              {/* Light - Set Brightness Config */}
+              {selectedNode.data.category === 'light' && selectedNode.data.actionType === 'setBrightness' && (
+                <div className="config-section">
+                  <label>Brightness Level (0-100)</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={selectedNode.data.config.value || 50}
+                    onChange={(e) => handleUpdateNodeConfig('value', parseInt(e.target.value))}
+                    style={{
+                      width: '100%'
+                    }}
+                  />
+                  <p style={{ fontSize: '0.9rem', color: '#666', marginTop: '0.5rem' }}>
+                    {selectedNode.data.config.value || 50}%
+                  </p>
                 </div>
               )}
 
@@ -406,4 +585,11 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
   )
 }
 
-export default WorkflowCanvas
+// Wrap with ReactFlowProvider to enable useReactFlow hook
+const WorkflowCanvasWrapper = (props) => (
+  <ReactFlowProvider>
+    <WorkflowCanvas {...props} />
+  </ReactFlowProvider>
+)
+
+export default WorkflowCanvasWrapper

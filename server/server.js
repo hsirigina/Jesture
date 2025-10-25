@@ -2,7 +2,7 @@ import express from 'express'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
 import cors from 'cors'
-import { keyboard, Key } from '@nut-tree-fork/nut-js'
+import { keyboard, Key, mouse, Button, screen } from '@nut-tree-fork/nut-js'
 import * as govee from './goveeController.js'
 
 const app = express()
@@ -27,6 +27,13 @@ let activeWorkflowMappings = new Map() // gesture -> action config
 
 // Store last execution time for cooldown tracking
 let gestureLastExecuted = new Map() // gesture -> timestamp
+
+// Store last hand position for relative mouse movement
+let lastHandPosition = null // { x, y }
+
+// Smoothing buffer for mouse movement (exponential moving average)
+let smoothedMouseVelocity = { x: 0, y: 0 }
+const SMOOTHING_FACTOR = 0.3 // 0 = no smoothing, 1 = max smoothing (0.3 = responsive but smooth)
 
 // LEGACY: Gesture to keyboard mapping for Presentation Mode (fallback)
 const gestureActionMap = {
@@ -77,12 +84,20 @@ async function executeGestureAction(gestureName) {
 }
 
 // Execute action from workflow node
-async function executeWorkflowAction(gestureName) {
+async function executeWorkflowAction(gestureName, position = null) {
   const actionConfig = activeWorkflowMappings.get(gestureName)
 
   if (!actionConfig) {
     console.log(`No workflow action mapped for gesture: ${gestureName}`)
     return { success: false, message: `No action mapped for ${gestureName}` }
+  }
+
+  // Attach position data to action config for moveCursor action
+  if (position) {
+    actionConfig.position = position
+    console.log('📍 Position data attached:', position)
+  } else {
+    console.log('⚠️ No position data received')
   }
 
   // Check cooldown modifier
@@ -123,6 +138,98 @@ async function executeWorkflowAction(gestureName) {
         gestureLastExecuted.set(gestureName, Date.now())
         return { success: true, message: `Pressed ${keyName}` }
       }
+    }
+
+    // Handle mouse actions
+    if (actionConfig.category === 'mouse' && actionConfig.config?.action) {
+      const action = actionConfig.config.action
+      let message = actionConfig.label
+
+      switch (action) {
+        case 'moveCursor':
+          // RELATIVE mouse movement (like a trackpad)
+          console.log('🖱️ MoveCursor action - Position:', actionConfig.position)
+          if (actionConfig.position && actionConfig.position.x !== undefined && actionConfig.position.y !== undefined) {
+            const currentHandPos = {
+              x: 1 - actionConfig.position.x, // Flip X for natural movement
+              y: actionConfig.position.y
+            }
+
+            if (lastHandPosition) {
+              // Calculate delta (how much hand moved)
+              const deltaX = currentHandPos.x - lastHandPosition.x
+              const deltaY = currentHandPos.y - lastHandPosition.y
+
+              // Amplify movement (multiply by screen size for sensitivity)
+              const screenWidth = await screen.width()
+              const screenHeight = await screen.height()
+              const rawMoveX = deltaX * screenWidth * 3 // 3x multiplier for trackpad-like speed
+              const rawMoveY = deltaY * screenHeight * 3
+
+              // Apply exponential smoothing (reduces jitter, makes movement fluid)
+              smoothedMouseVelocity.x = (SMOOTHING_FACTOR * smoothedMouseVelocity.x) + ((1 - SMOOTHING_FACTOR) * rawMoveX)
+              smoothedMouseVelocity.y = (SMOOTHING_FACTOR * smoothedMouseVelocity.y) + ((1 - SMOOTHING_FACTOR) * rawMoveY)
+
+              const moveX = Math.floor(smoothedMouseVelocity.x)
+              const moveY = Math.floor(smoothedMouseVelocity.y)
+
+              // Get current mouse position and add smoothed delta
+              const currentMousePos = await mouse.getPosition()
+              const newX = currentMousePos.x + moveX
+              const newY = currentMousePos.y + moveY
+
+              // Clamp to screen bounds
+              const finalX = Math.max(0, Math.min(screenWidth - 1, newX))
+              const finalY = Math.max(0, Math.min(screenHeight - 1, newY))
+
+              console.log('📍 Smoothed Delta:', moveX, moveY, '→ Moving to:', finalX, finalY)
+              await mouse.setPosition({ x: finalX, y: finalY })
+              message = `Moved cursor by (${moveX}, ${moveY})`
+            } else {
+              // First detection - just store position, don't move
+              console.log('🆕 First palm detection - initializing tracking')
+              message = 'Tracking initialized'
+            }
+
+            // Update last position for next delta calculation
+            lastHandPosition = currentHandPos
+          } else {
+            console.log('❌ No position data - actionConfig.position:', actionConfig.position)
+            return { success: false, message: 'No position data for cursor movement' }
+          }
+          break
+        case 'click':
+          await mouse.click(Button.LEFT)
+          message = 'Left Click'
+          break
+        case 'rightClick':
+          await mouse.click(Button.RIGHT)
+          message = 'Right Click'
+          break
+        case 'doubleClick':
+          await mouse.doubleClick(Button.LEFT)
+          message = 'Double Click'
+          break
+        case 'scrollUp':
+          const scrollUpAmount = actionConfig.config.amount || 3
+          // Scroll up by moving negative Y (multiply by larger number for more noticeable scroll)
+          await mouse.scrollUp(scrollUpAmount * 100)
+          message = `Scrolled Up ${scrollUpAmount} lines`
+          break
+        case 'scrollDown':
+          const scrollDownAmount = actionConfig.config.amount || 3
+          // Scroll down by moving positive Y (multiply by larger number for more noticeable scroll)
+          await mouse.scrollDown(scrollDownAmount * 100)
+          message = `Scrolled Down ${scrollDownAmount} lines`
+          break
+        default:
+          return { success: false, message: `Unknown mouse action: ${action}` }
+      }
+
+      console.log(`✅ Executed workflow mouse action: ${gestureName} → ${message}`)
+      // Record execution time for cooldown
+      gestureLastExecuted.set(gestureName, Date.now())
+      return { success: true, message }
     }
 
     // Handle light actions
@@ -229,12 +336,20 @@ io.on('connection', (socket) => {
   socket.on('gesture:detected', async (data) => {
     console.log('Gesture detected:', data)
 
+    // Handle palm release - reset tracking
+    if (data.gesture === 'palm_release') {
+      console.log('🖐️ Palm released - resetting mouse tracking')
+      lastHandPosition = null
+      smoothedMouseVelocity = { x: 0, y: 0 } // Reset smoothing
+      return
+    }
+
     let result
 
     // Check if we have an active workflow
     if (activeWorkflowMappings.size > 0) {
-      // Use workflow-based execution
-      result = await executeWorkflowAction(data.gesture)
+      // Use workflow-based execution with position data
+      result = await executeWorkflowAction(data.gesture, data.position)
     } else {
       // Fallback to legacy mode-based execution
       const client = clients.get(socket.id)

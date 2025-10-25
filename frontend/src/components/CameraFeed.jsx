@@ -85,9 +85,10 @@ const CameraFeed = ({ onGestureDetected }) => {
 
         hands.setOptions({
           maxNumHands: 1,
-          modelComplexity: 0,
-          minDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5
+          modelComplexity: 0, // Lowest complexity = less memory
+          minDetectionConfidence: 0.3, // Lower = faster but less accurate
+          minTrackingConfidence: 0.3,
+          selfieMode: false // Better performance
         })
 
         hands.onResults(onResults)
@@ -107,7 +108,9 @@ const CameraFeed = ({ onGestureDetected }) => {
               }
             },
             width: 640,
-            height: 480
+            height: 480,
+            // Request max frame rate from camera
+            facingMode: 'user'
           })
 
           await camera.start()
@@ -160,12 +163,8 @@ const CameraFeed = ({ onGestureDetected }) => {
 
         octx.restore()
 
-        // Gesture detection - throttled to prevent spam
-        const now = Date.now()
-        if (now - lastGestureTimeRef.current > 300) {
-          detectGestureSimple(landmarks)
-          lastGestureTimeRef.current = now
-        }
+        // Gesture detection - run EVERY frame for maximum smoothness
+        detectGestureSimple(landmarks)
       }
     }
 
@@ -225,9 +224,10 @@ const CameraFeed = ({ onGestureDetected }) => {
 
       // HOLD TIME & COOLDOWN LOGIC
       if (gestureName) {
-        // Determine hold time: swipes are instant, static gestures need 2000ms
+        // Determine hold time: swipes and palm are instant for tracking, others need 2000ms
         const isSwipeGesture = gestureName === 'swipe_left' || gestureName === 'swipe_right'
-        const requiredHoldTime = isSwipeGesture ? 0 : 2000
+        const isPalmGesture = gestureName === 'palm'
+        const requiredHoldTime = (isSwipeGesture || isPalmGesture) ? 0 : 2000
 
         // Check if this is a new gesture or continuation
         if (gestureHoldStartRef.current?.name === gestureName) {
@@ -238,11 +238,12 @@ const CameraFeed = ({ onGestureDetected }) => {
           const progress = Math.min(100, (holdDuration / requiredHoldTime) * 100)
           setHoldProgress({ gesture: gestureName, progress })
 
-          // Check cooldown period (500ms since last trigger of SAME gesture)
+          // Check cooldown period (NO cooldown for palm, 500ms for others)
+          const cooldownTime = isPalmGesture ? 0 : 500
           const timeSinceLastTrigger = now - lastTriggeredGestureRef.current.time
           const isSameGestureInCooldown =
             lastTriggeredGestureRef.current.name === gestureName &&
-            timeSinceLastTrigger < 500
+            timeSinceLastTrigger < cooldownTime
 
           if (holdDuration >= requiredHoldTime && !isSameGestureInCooldown) {
             // Gesture held long enough and not in cooldown
@@ -260,9 +261,14 @@ const CameraFeed = ({ onGestureDetected }) => {
               setDetectedGesture(null)
             }, 2000)
 
-            // Trigger callback
+            // Trigger callback with hand position data
             if (onGestureDetected) {
-              onGestureDetected(gestureName, 0.9)
+              // Get index finger tip position (landmark 8) for cursor tracking
+              const indexTip = landmarks[8]
+              onGestureDetected(gestureName, 0.9, {
+                x: indexTip.x,
+                y: indexTip.y
+              })
             }
 
             // Update last triggered
@@ -278,6 +284,14 @@ const CameraFeed = ({ onGestureDetected }) => {
         // No gesture detected, reset hold timer and progress
         gestureHoldStartRef.current = null
         setHoldProgress({ gesture: null, progress: 0 })
+
+        // Reset tracking if palm was being tracked
+        if (lastTriggeredGestureRef.current.name === 'palm') {
+          // Send reset signal to server
+          if (onGestureDetected) {
+            onGestureDetected('palm_release', 0, null)
+          }
+        }
       }
     }
 
@@ -293,18 +307,24 @@ const CameraFeed = ({ onGestureDetected }) => {
         } catch (err) {
           // Ignore cleanup errors
         }
+        camera = null
       }
 
-      // Small delay before closing hands to let pending frames finish
-      setTimeout(() => {
-        if (hands) {
-          try {
-            hands.close()
-          } catch (err) {
-            // Ignore cleanup errors
-          }
+      // Close hands immediately and forcefully
+      if (hands) {
+        try {
+          hands.close()
+        } catch (err) {
+          // Ignore cleanup errors
         }
-      }, 100)
+        hands = null
+      }
+
+      // Clear any pending timeouts
+      if (gestureTimeoutRef.current) {
+        clearTimeout(gestureTimeoutRef.current)
+        gestureTimeoutRef.current = null
+      }
     }
   }, [onGestureDetected])
 

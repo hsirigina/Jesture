@@ -70,7 +70,7 @@ class SocketClient {
   }
 
   // Send gesture detected event
-  sendGesture(gesture, confidence) {
+  sendGesture(gesture, confidence, position = null) {
     if (!this.connected) {
       console.warn('Not connected to server')
       return
@@ -79,6 +79,7 @@ class SocketClient {
     this.socket.emit('gesture:detected', {
       gesture,
       confidence,
+      position, // { x, y } normalized 0-1
       timestamp: Date.now()
     })
   }
