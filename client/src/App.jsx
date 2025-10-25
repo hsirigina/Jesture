@@ -1,0 +1,222 @@
+import { useState, useEffect } from 'react'
+import CameraFeed from './components/CameraFeed'
+import MiniPanel from './components/MiniPanel'
+import socketClient from './services/socketClient'
+import './App.css'
+
+function App() {
+  const [lastGesture, setLastGesture] = useState(null)
+  const [connected, setConnected] = useState(false)
+  const [viewMode, setViewMode] = useState('full') // 'mini' or 'full'
+  const [isMiniWindow, setIsMiniWindow] = useState(false)
+  const [controlMode, setControlMode] = useState('presentation') // 'presentation' or 'light'
+
+  useEffect(() => {
+    // Connect to Socket.IO server
+    socketClient.connect()
+
+    // Listen for connection status
+    const unsubscribeStatus = socketClient.on('connection:status', (data) => {
+      setConnected(data.connected)
+    })
+
+    // Listen for action completed
+    const unsubscribeAction = socketClient.on('action:completed', (data) => {
+      console.log('Server confirmed:', data.message)
+    })
+
+    // Listen for view mode changes from Electron
+    if (window.electronAPI) {
+      window.electronAPI.onSetViewMode((mode) => {
+        setViewMode(mode)
+        if (mode === 'mini') {
+          setIsMiniWindow(true)
+        } else {
+          setIsMiniWindow(false)
+        }
+      })
+    }
+
+    // Cleanup on unmount
+    return () => {
+      unsubscribeStatus()
+      unsubscribeAction()
+      socketClient.disconnect()
+    }
+  }, [])
+
+  const handleGestureDetected = (gestureName, confidence) => {
+    setLastGesture({ name: gestureName, confidence, time: Date.now() })
+    console.log('Gesture detected:', gestureName, 'Confidence:', confidence)
+
+    // Send gesture to server via Socket.IO
+    socketClient.sendGesture(gestureName, confidence)
+  }
+
+  const handleModeChange = (newMode) => {
+    setControlMode(newMode)
+    socketClient.changeMode(newMode)
+    console.log('Switched to', newMode, 'mode')
+  }
+
+  // Mini panel mode - ONLY show this if we're actually in the mini window
+  if (isMiniWindow || viewMode === 'mini') {
+    return (
+      <>
+        {/* Keep camera running in background */}
+        <div style={{ display: 'none' }}>
+          <CameraFeed onGestureDetected={handleGestureDetected} />
+        </div>
+        <MiniPanel
+          onShowFull={() => {
+            setViewMode('full')
+            if (window.electronAPI) {
+              window.electronAPI.setViewMode('full')
+            }
+          }}
+          onClose={() => {
+            if (window.electronAPI) {
+              window.electronAPI.hideWindow()
+            }
+          }}
+        />
+      </>
+    )
+  }
+
+  // Full homepage mode
+  return (
+    <div className="app">
+      <div className="container">
+        <header className="header">
+          <div className="logo">
+            GestureThing
+            <span style={{
+              marginLeft: '0.5rem',
+              fontSize: '0.625rem',
+              color: connected ? '#00ff00' : '#666666'
+            }}>
+              ● {connected ? 'CONNECTED' : 'DISCONNECTED'}
+            </span>
+          </div>
+          <div className="header-actions">
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginRight: '1rem' }}>
+              <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Mode:</span>
+              <button
+                className={controlMode === 'presentation' ? 'btn btn-primary' : 'btn'}
+                onClick={() => handleModeChange('presentation')}
+              >
+                Presentation
+              </button>
+              <button
+                className={controlMode === 'light' ? 'btn btn-primary' : 'btn'}
+                onClick={() => handleModeChange('light')}
+              >
+                Light Control
+              </button>
+            </div>
+            <button className="btn" onClick={() => {
+              setViewMode('mini')
+              if (window.electronAPI) {
+                window.electronAPI.setViewMode('mini')
+              }
+            }}>Minimize</button>
+          </div>
+        </header>
+
+        <div className="main-grid">
+          <div className="card">
+            <h2 className="section-title">Camera</h2>
+            <CameraFeed onGestureDetected={handleGestureDetected} />
+          </div>
+
+          <div className="card">
+            <h2 className="section-title">Gestures</h2>
+            <div className="gesture-grid">
+              {['Fist', 'Palm', 'Point', 'Peace', 'Thumbs Up', 'Thumbs Down'].map(gesture => (
+                <button key={gesture} className="btn gesture-btn">
+                  <span className="gesture-icon">✋</span>
+                  <span className="gesture-label">{gesture}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <h2 className="section-title">Active Mappings - {controlMode === 'presentation' ? 'Presentation Mode' : 'Light Control Mode'}</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {controlMode === 'presentation' ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span>Swipe Right</span>
+                  <span style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></span>
+                  <span className="text-muted">Next Slide</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span>Swipe Left</span>
+                  <span style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></span>
+                  <span className="text-muted">Previous Slide</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span>Thumbs Up</span>
+                  <span style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></span>
+                  <span className="text-muted">Start Presentation (F5)</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span>Palm</span>
+                  <span style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></span>
+                  <span className="text-muted">End Presentation (Esc)</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span>Thumbs Up</span>
+                  <span style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></span>
+                  <span className="text-muted">Turn Lights ON</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span>Thumbs Down</span>
+                  <span style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></span>
+                  <span className="text-muted">Turn Lights OFF</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span>Swipe Up</span>
+                  <span style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></span>
+                  <span className="text-muted">Brighten (+20%)</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span>Swipe Down</span>
+                  <span style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></span>
+                  <span className="text-muted">Dim (-20%)</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span>Peace</span>
+                  <span style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></span>
+                  <span className="text-muted">Cycle Colors</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <h2 className="section-title">Connected Devices</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.5rem', color: '#00ff00' }}>●</span>
+              <span>Local Computer (Keyboard)</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.5rem', color: '#00ff00' }}>●</span>
+              <span>Govee Smart LED Bulb (H6004)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default App

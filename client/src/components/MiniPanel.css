@@ -1,0 +1,118 @@
+.mini-panel {
+  width: 180px;
+  background: #1e1e1e;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: white;
+  user-select: none;
+  overflow: hidden;
+}
+
+.mini-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #2a2a2a;
+  border-bottom: 1px solid #3a3a3a;
+  cursor: move; /* Indicates draggable */
+  -webkit-app-region: drag; /* Makes this draggable on macOS */
+}
+
+.mini-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.mini-close-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+  -webkit-app-region: no-drag; /* Button should be clickable */
+}
+
+.mini-close-btn:hover {
+  background: #ff5f56;
+  color: white;
+}
+
+.mini-panel-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-row,
+.gesture-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+
+.status-label,
+.gesture-label {
+  color: #888;
+  font-weight: 500;
+}
+
+.status-indicator {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.status-indicator.connected {
+  background: #28a745;
+  color: white;
+}
+
+.status-indicator.disconnected {
+  background: #dc3545;
+  color: white;
+}
+
+.gesture-value {
+  color: #fff;
+  font-weight: 600;
+  font-size: 11px;
+  background: #3a3a3a;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.show-full-btn {
+  margin-top: 4px;
+  padding: 8px;
+  background: #007bff;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  -webkit-app-region: no-drag;
+}
+
+.show-full-btn:hover {
+  background: #0056b3;
+}
+
+.show-full-btn:active {
+  transform: scale(0.98);
+}
