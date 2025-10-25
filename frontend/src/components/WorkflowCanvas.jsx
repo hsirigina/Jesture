@@ -15,13 +15,14 @@ import './WorkflowCanvas.css'
 
 // Available gesture input nodes
 const GESTURE_INPUTS = [
-  { id: 'swipe_left', label: 'Swipe Left', gesture: 'swipe_left' },
-  { id: 'swipe_right', label: 'Swipe Right', gesture: 'swipe_right' },
-  { id: 'thumbs_up', label: 'Thumbs Up', gesture: 'thumbs_up' },
-  { id: 'thumbs_down', label: 'Thumbs Down', gesture: 'thumbs_down' },
-  { id: 'palm', label: 'Palm', gesture: 'palm' },
-  { id: 'point', label: 'Point', gesture: 'point' },
-  { id: 'peace', label: 'Peace', gesture: 'peace' },
+  { id: 'swipe_left', label: 'Swipe Left', gesture: 'swipe_left', type: 'discrete' },
+  { id: 'swipe_right', label: 'Swipe Right', gesture: 'swipe_right', type: 'discrete' },
+  { id: 'thumbs_up', label: 'Thumbs Up', gesture: 'thumbs_up', type: 'discrete' },
+  { id: 'thumbs_down', label: 'Thumbs Down', gesture: 'thumbs_down', type: 'discrete' },
+  { id: 'palm', label: 'Palm', gesture: 'palm', type: 'discrete' },
+  { id: 'point', label: 'Point', gesture: 'point', type: 'discrete' },
+  { id: 'peace', label: 'Peace', gesture: 'peace', type: 'discrete' },
+  { id: 'continuous_motion', label: 'Continuous Motion (Point)', gesture: 'continuous_motion', type: 'continuous' },
 ]
 
 // Available output action nodes (consolidated to generic nodes)
@@ -49,25 +50,25 @@ const OUTPUT_ACTIONS = [
   },
 ]
 
-// Action type options for each category
+// Action type options for each category with compatibility rules
 const ACTION_TYPE_OPTIONS = {
   keyboard: [
-    { value: 'typeText', label: 'Type Text', defaultConfig: { action: 'typeText', text: '' } },
-    { value: 'pressKey', label: 'Press Key', defaultConfig: { key: 'Right' } },
+    { value: 'typeText', label: 'Type Text', defaultConfig: { action: 'typeText', text: '' }, compatibleWith: ['discrete'] },
+    { value: 'pressKey', label: 'Press Key', defaultConfig: { key: 'Right' }, compatibleWith: ['discrete'] },
   ],
   mouse: [
-    { value: 'moveCursor', label: 'Move Cursor (Hand Tracking)', defaultConfig: { action: 'moveCursor' } },
-    { value: 'click', label: 'Left Click', defaultConfig: { action: 'click' } },
-    { value: 'rightClick', label: 'Right Click', defaultConfig: { action: 'rightClick' } },
-    { value: 'doubleClick', label: 'Double Click', defaultConfig: { action: 'doubleClick' } },
-    { value: 'scrollUp', label: 'Scroll Up', defaultConfig: { action: 'scrollUp', amount: 3 } },
-    { value: 'scrollDown', label: 'Scroll Down', defaultConfig: { action: 'scrollDown', amount: 3 } },
+    { value: 'moveCursor', label: 'Move Cursor (Continuous Tracking)', defaultConfig: { action: 'moveCursor' }, compatibleWith: ['continuous'] },
+    { value: 'click', label: 'Left Click', defaultConfig: { action: 'click' }, compatibleWith: ['discrete'] },
+    { value: 'rightClick', label: 'Right Click', defaultConfig: { action: 'rightClick' }, compatibleWith: ['discrete'] },
+    { value: 'doubleClick', label: 'Double Click', defaultConfig: { action: 'doubleClick' }, compatibleWith: ['discrete'] },
+    { value: 'scrollUp', label: 'Scroll Up', defaultConfig: { action: 'scrollUp', amount: 3 }, compatibleWith: ['discrete'] },
+    { value: 'scrollDown', label: 'Scroll Down', defaultConfig: { action: 'scrollDown', amount: 3 }, compatibleWith: ['discrete'] },
   ],
   light: [
-    { value: 'turnOn', label: 'Turn On', defaultConfig: { action: 'turnOn' } },
-    { value: 'turnOff', label: 'Turn Off', defaultConfig: { action: 'turnOff' } },
-    { value: 'setBrightness', label: 'Set Brightness', defaultConfig: { action: 'setBrightness', value: 50 } },
-    { value: 'colorCycle', label: 'Cycle Color', defaultConfig: { action: 'colorCycle' } },
+    { value: 'turnOn', label: 'Turn On', defaultConfig: { action: 'turnOn' }, compatibleWith: ['discrete'] },
+    { value: 'turnOff', label: 'Turn Off', defaultConfig: { action: 'turnOff' }, compatibleWith: ['discrete'] },
+    { value: 'setBrightness', label: 'Set Brightness', defaultConfig: { action: 'setBrightness', value: 50 }, compatibleWith: ['discrete'] },
+    { value: 'colorCycle', label: 'Cycle Color', defaultConfig: { action: 'colorCycle' }, compatibleWith: ['discrete'] },
   ],
 }
 
@@ -125,8 +126,36 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
   }
 
   const onConnect = useCallback(
-    (params) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges]
+    (params) => {
+      // Validate compatibility between source and target
+      const sourceNode = nodes.find(n => n.id === params.source)
+      const targetNode = nodes.find(n => n.id === params.target)
+
+      if (sourceNode && targetNode) {
+        // Get input gesture type (discrete or continuous)
+        const inputType = sourceNode.data.type || 'discrete'
+
+        // Get target action's compatibility requirements
+        const targetCategory = targetNode.data.category
+        const targetActionType = targetNode.data.actionType
+
+        if (targetCategory && targetActionType) {
+          const actionTypeOptions = ACTION_TYPE_OPTIONS[targetCategory]
+          const actionOption = actionTypeOptions?.find(opt => opt.value === targetActionType)
+
+          if (actionOption && actionOption.compatibleWith) {
+            // Check if input type is compatible with this action
+            if (!actionOption.compatibleWith.includes(inputType)) {
+              alert(`❌ Incompatible connection!\n\n"${sourceNode.data.label}" (${inputType}) cannot connect to "${actionOption.label}".\n\nThis action only works with: ${actionOption.compatibleWith.join(', ')} gestures.`)
+              return
+            }
+          }
+        }
+      }
+
+      setEdges((eds) => addEdge(params, eds))
+    },
+    [setEdges, nodes]
   )
 
   const handleDragStart = (event, nodeType, nodeData) => {

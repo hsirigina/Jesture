@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import CameraFeed from './components/CameraFeed'
 import MiniPanel from './components/MiniPanel'
 import Auth from './components/Auth'
@@ -29,9 +29,9 @@ function AppContent() {
       setConnected(data.connected)
     })
 
-    // Listen for action completed
+    // Listen for action completed (silent - no logs)
     const unsubscribeAction = socketClient.on('action:completed', (data) => {
-      console.log('Server confirmed:', data.message)
+      // Action completed silently
     })
 
     // Listen for view mode changes from Electron
@@ -81,13 +81,12 @@ function AppContent() {
     loadActiveWorkflow()
   }, [user])
 
-  const handleGestureDetected = (gestureName, confidence, position = null) => {
+  const handleGestureDetected = useCallback((gestureName, confidence, position = null) => {
     setLastGesture({ name: gestureName, confidence, time: Date.now() })
-    console.log('Gesture detected:', gestureName, 'Confidence:', confidence, 'Position:', position)
 
     // Send gesture to server via Socket.IO with position data
     socketClient.sendGesture(gestureName, confidence, position)
-  }
+  }, [])
 
   const handleModeChange = (newMode) => {
     setControlMode(newMode)

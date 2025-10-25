@@ -38,7 +38,6 @@ class SocketClient {
 
     // Listen for action completed
     this.socket.on('action:completed', (data) => {
-      console.log('Action completed:', data)
       this.emit('action:completed', data)
     })
 

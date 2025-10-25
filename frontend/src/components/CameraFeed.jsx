@@ -59,6 +59,8 @@ const CameraFeed = ({ onGestureDetected }) => {
   const previousHandPositionRef = useRef(null)
   const gestureHoldStartRef = useRef(null)
   const lastTriggeredGestureRef = useRef({ name: null, time: 0 })
+  const continuousMotionActiveRef = useRef(false) // Lock for continuous motion
+  const gestureBufferRef = useRef([]) // Buffer to smooth gesture detection over multiple frames
 
   useEffect(() => {
     let camera = null
@@ -77,6 +79,10 @@ const CameraFeed = ({ onGestureDetected }) => {
     const initializeCamera = async () => {
       if (isUnmounting) return
       try {
+        // Completely suppress MediaPipe console spam
+        const originalWarn = console.warn
+        console.warn = () => {} // Disable all warnings (MediaPipe spams constantly)
+
         hands = new Hands({
           locateFile: (file) => {
             return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -94,9 +100,19 @@ const CameraFeed = ({ onGestureDetected }) => {
         hands.onResults(onResults)
 
         if (videoRef.current) {
+          let lastFrameTime = 0
+          const targetFPS = 240 // Ultra-high FPS for maximum smoothness
+          const frameDuration = 1000 / targetFPS
+
           camera = new Camera(videoRef.current, {
             onFrame: async () => {
               if (videoRef.current && hands && !isUnmounting) {
+                const now = performance.now()
+                if (now - lastFrameTime < frameDuration) {
+                  return // Skip frame to maintain target FPS
+                }
+                lastFrameTime = now
+
                 try {
                   await hands.send({ image: videoRef.current })
                 } catch (err) {
@@ -109,7 +125,6 @@ const CameraFeed = ({ onGestureDetected }) => {
             },
             width: 640,
             height: 480,
-            // Request max frame rate from camera
             facingMode: 'user'
           })
 
@@ -120,13 +135,19 @@ const CameraFeed = ({ onGestureDetected }) => {
       }
     }
 
+    // Store canvas contexts once to prevent memory leaks
+    let ctx = null
+    let octx = null
+
     const onResults = (results) => {
       if (!canvasRef.current || !overlayRef.current) return
 
       const canvas = canvasRef.current
       const overlay = overlayRef.current
-      const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true, willReadFrequently: false })
-      const octx = overlay.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false })
+
+      // Get contexts only once
+      if (!ctx) ctx = canvas.getContext('2d', { alpha: false, desynchronized: true, willReadFrequently: false })
+      if (!octx) octx = overlay.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false })
 
       // VIDEO CANVAS - Draw EVERY frame for smoothness
       ctx.save()
@@ -168,6 +189,139 @@ const CameraFeed = ({ onGestureDetected }) => {
       }
     }
 
+    // Custom geometry-based gesture detection using landmark positions
+    const detectGestureByGeometry = (landmarks) => {
+      // Landmark indices: 0=wrist, 4=thumb tip, 8=index tip, 12=middle tip, 16=ring tip, 20=pinky tip
+      // Base knuckles: 2=thumb base, 5=index base, 9=middle base, 13=ring base, 17=pinky base
+
+      const thumbTip = landmarks[4]
+      const thumbBase = landmarks[2]
+      const indexTip = landmarks[8]
+      const indexBase = landmarks[5]
+      const middleTip = landmarks[12]
+      const middleBase = landmarks[9]
+      const ringTip = landmarks[16]
+      const ringBase = landmarks[13]
+      const pinkyTip = landmarks[20]
+      const pinkyBase = landmarks[17]
+      const wrist = landmarks[0]
+
+      // Helper: Check if finger is extended (tip is above base)
+      const isExtended = (tip, base) => tip.y < base.y - 0.05
+
+      // Helper: Check if finger is CLEARLY curled (tip below base significantly)
+      const isCurled = (tip, base) => tip.y > base.y + 0.03
+
+      // Check individual fingers
+      const thumbExtended = isExtended(thumbTip, thumbBase)
+      const indexExtended = isExtended(indexTip, indexBase)
+      const middleExtended = isExtended(middleTip, middleBase)
+      const ringExtended = isExtended(ringTip, ringBase)
+      const pinkyExtended = isExtended(pinkyTip, pinkyBase)
+
+      // Check for clearly curled fingers
+      const middleCurled = isCurled(middleTip, middleBase)
+      const ringCurled = isCurled(ringTip, ringBase)
+      const pinkyCurled = isCurled(pinkyTip, pinkyBase)
+
+      // Helper: Distance between two points
+      const distance = (p1, p2) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2))
+
+      // PRIORITY 1: POINT - Only index extended, middle/ring/pinky MUST be clearly curled
+      if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
+        // STRICT: Middle, ring, and pinky must be CLEARLY curled (not ambiguous)
+        if (middleCurled && ringCurled && pinkyCurled) {
+          // Additional check: Index and middle should be FAR apart (middle curled down)
+          const indexMiddleDist = distance(indexTip, middleTip)
+
+          // If middle is truly curled, it should be much farther from index tip
+          if (indexMiddleDist > 0.08) {
+            // Make sure thumb is NOT pointing up (key distinction from thumbs_up)
+            const thumbToWristDist = distance(thumbTip, wrist)
+            const indexToWristDist = distance(indexTip, wrist)
+
+            // Thumb should be closer to wrist than index (not extended upward)
+            if (thumbToWristDist < indexToWristDist * 0.8) {
+              return 'point'
+            }
+          }
+        }
+      }
+
+      // PRIORITY 2: THUMBS UP - Only thumb extended upward, all fingers curled
+      if (thumbExtended && !indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
+        // Make sure thumb is pointing UP not sideways
+        if (thumbTip.y < wrist.y - 0.1) {
+          return 'thumbs_up'
+        }
+      }
+
+      // PRIORITY 3: THUMBS DOWN - Only thumb extended downward, all fingers curled
+      if (!indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
+        // Check if thumb is below wrist
+        if (thumbTip.y > wrist.y + 0.1) {
+          return 'thumbs_down'
+        }
+      }
+
+      // PRIORITY 4: PEACE - Index and middle BOTH extended, close together
+      if (indexExtended && middleExtended && !ringExtended && !pinkyExtended) {
+        // Peace sign: index and middle should be CLOSE together (not spread apart)
+        const indexMiddleDist = distance(indexTip, middleTip)
+
+        // If they're close (< 0.08), it's definitely peace sign
+        if (indexMiddleDist < 0.08) {
+          return 'peace'
+        }
+      }
+
+      // PRIORITY 5: PALM - All fingers extended (open hand)
+      if (indexExtended && middleExtended && ringExtended && pinkyExtended) {
+        return 'palm'
+      }
+
+      return null
+    }
+
+    // Temporal smoothing: require gesture to be stable across multiple frames
+    const smoothGestureDetection = (rawGesture) => {
+      // Add to buffer
+      gestureBufferRef.current.push(rawGesture)
+
+      // Keep only last 5 frames
+      if (gestureBufferRef.current.length > 5) {
+        gestureBufferRef.current.shift()
+      }
+
+      // Need at least 3 frames to make a decision
+      if (gestureBufferRef.current.length < 3) {
+        return null
+      }
+
+      // Count occurrences of each gesture in buffer
+      const counts = {}
+      gestureBufferRef.current.forEach(g => {
+        if (g) counts[g] = (counts[g] || 0) + 1
+      })
+
+      // Find most common gesture
+      let maxCount = 0
+      let consensusGesture = null
+      for (const [gesture, count] of Object.entries(counts)) {
+        if (count > maxCount) {
+          maxCount = count
+          consensusGesture = gesture
+        }
+      }
+
+      // Require at least 3 out of 5 frames to agree (60% consensus)
+      if (maxCount >= 3) {
+        return consensusGesture
+      }
+
+      return null
+    }
+
     const detectGestureSimple = (landmarks) => {
       const wrist = landmarks[0]
       let gestureName = null
@@ -201,33 +355,42 @@ const CameraFeed = ({ onGestureDetected }) => {
 
       // Use fingerpose for static gesture detection (if no swipe)
       if (!gestureName) {
-        // Convert MediaPipe landmarks to fingerpose format
-        // MediaPipe gives {x, y, z} but fingerpose expects array of [x, y, z]
-        const landmarksArray = landmarks.map(point => [point.x, point.y, point.z])
+        // If continuous motion is active, ONLY look for point gesture (ignore others)
+        if (continuousMotionActiveRef.current) {
+          // Check if index finger is still extended (point gesture maintained)
+          const indexTip = landmarks[8]
+          const indexBase = landmarks[5]
+          const middleTip = landmarks[12]
 
-        const estimatedGestures = GE.estimate(landmarksArray, 8.0)
+          // Simple check: index extended, middle curled
+          const indexExtended = indexTip.y < indexBase.y - 0.1
+          const middleCurled = middleTip.y > indexBase.y
 
-        console.log('👋 All detected gestures:', estimatedGestures.gestures)
+          if (indexExtended && middleCurled) {
+            gestureName = 'point' // Keep continuous motion active
+          } else {
+            // Lost point gesture - deactivate continuous motion
+            continuousMotionActiveRef.current = false
+          }
+        } else {
+          // Custom geometry-based gesture detection with temporal smoothing
+          const rawGesture = detectGestureByGeometry(landmarks)
+          gestureName = smoothGestureDetection(rawGesture) // Apply smoothing
 
-        if (estimatedGestures.gestures && estimatedGestures.gestures.length > 0) {
-          // Sort by score and get the best match
-          const bestGesture = estimatedGestures.gestures.reduce((prev, current) =>
-            prev.score > current.score ? prev : current
-          )
-
-          if (bestGesture.score > 8.0) {
-            gestureName = bestGesture.name
-            console.log('🎯 Fingerpose detected:', bestGesture.name, 'score:', bestGesture.score.toFixed(2))
+          // If point gesture detected with consensus, activate continuous motion lock
+          if (gestureName === 'point') {
+            continuousMotionActiveRef.current = true
           }
         }
       }
 
       // HOLD TIME & COOLDOWN LOGIC
       if (gestureName) {
-        // Determine hold time: swipes and palm are instant for tracking, others need 2000ms
+        // Determine hold time: swipes, palm, and point are instant for tracking, others need 2000ms
         const isSwipeGesture = gestureName === 'swipe_left' || gestureName === 'swipe_right'
         const isPalmGesture = gestureName === 'palm'
-        const requiredHoldTime = (isSwipeGesture || isPalmGesture) ? 0 : 2000
+        const isPointGesture = gestureName === 'point'
+        const requiredHoldTime = (isSwipeGesture || isPalmGesture || isPointGesture) ? 0 : 2000
 
         // Check if this is a new gesture or continuation
         if (gestureHoldStartRef.current?.name === gestureName) {
@@ -238,8 +401,8 @@ const CameraFeed = ({ onGestureDetected }) => {
           const progress = Math.min(100, (holdDuration / requiredHoldTime) * 100)
           setHoldProgress({ gesture: gestureName, progress })
 
-          // Check cooldown period (NO cooldown for palm, 500ms for others)
-          const cooldownTime = isPalmGesture ? 0 : 500
+          // Check cooldown period (NO cooldown for palm and point, 500ms for others)
+          const cooldownTime = (isPalmGesture || isPointGesture) ? 0 : 500
           const timeSinceLastTrigger = now - lastTriggeredGestureRef.current.time
           const isSameGestureInCooldown =
             lastTriggeredGestureRef.current.name === gestureName &&
@@ -247,7 +410,6 @@ const CameraFeed = ({ onGestureDetected }) => {
 
           if (holdDuration >= requiredHoldTime && !isSameGestureInCooldown) {
             // Gesture held long enough and not in cooldown
-            console.log('✅ GESTURE TRIGGERED:', gestureName, `(held ${holdDuration}ms)`)
             setDetectedGesture(gestureName)
             setHoldProgress({ gesture: null, progress: 0 })
 
@@ -265,7 +427,11 @@ const CameraFeed = ({ onGestureDetected }) => {
             if (onGestureDetected) {
               // Get index finger tip position (landmark 8) for cursor tracking
               const indexTip = landmarks[8]
-              onGestureDetected(gestureName, 0.9, {
+
+              // Convert 'point' gesture to 'continuous_motion' with position tracking
+              const actualGestureName = isPointGesture ? 'continuous_motion' : gestureName
+
+              onGestureDetected(actualGestureName, 0.9, {
                 x: indexTip.x,
                 y: indexTip.y
               })
@@ -285,11 +451,18 @@ const CameraFeed = ({ onGestureDetected }) => {
         gestureHoldStartRef.current = null
         setHoldProgress({ gesture: null, progress: 0 })
 
-        // Reset tracking if palm was being tracked
+        // Reset tracking if palm or point was being tracked
         if (lastTriggeredGestureRef.current.name === 'palm') {
           // Send reset signal to server
           if (onGestureDetected) {
             onGestureDetected('palm_release', 0, null)
+          }
+        }
+        if (lastTriggeredGestureRef.current.name === 'point') {
+          // Send reset signal for continuous motion
+          continuousMotionActiveRef.current = false // Clear lock
+          if (onGestureDetected) {
+            onGestureDetected('continuous_motion_release', 0, null)
           }
         }
       }
@@ -319,6 +492,10 @@ const CameraFeed = ({ onGestureDetected }) => {
         }
         hands = null
       }
+
+      // Clear canvas contexts to free memory
+      ctx = null
+      octx = null
 
       // Clear any pending timeouts
       if (gestureTimeoutRef.current) {

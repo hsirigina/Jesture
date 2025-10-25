@@ -33,7 +33,9 @@ let lastHandPosition = null // { x, y }
 
 // Smoothing buffer for mouse movement (exponential moving average)
 let smoothedMouseVelocity = { x: 0, y: 0 }
-const SMOOTHING_FACTOR = 0.3 // 0 = no smoothing, 1 = max smoothing (0.3 = responsive but smooth)
+const SMOOTHING_FACTOR = 0.7 // 0 = no smoothing, 1 = max smoothing (0.7 = very smooth)
+
+// No interpolation - direct cursor control for best performance
 
 // LEGACY: Gesture to keyboard mapping for Presentation Mode (fallback)
 const gestureActionMap = {
@@ -147,8 +149,7 @@ async function executeWorkflowAction(gestureName, position = null) {
 
       switch (action) {
         case 'moveCursor':
-          // RELATIVE mouse movement (like a trackpad)
-          console.log('🖱️ MoveCursor action - Position:', actionConfig.position)
+          // RELATIVE mouse movement - direct control
           if (actionConfig.position && actionConfig.position.x !== undefined && actionConfig.position.y !== undefined) {
             const currentHandPos = {
               x: 1 - actionConfig.position.x, // Flip X for natural movement
@@ -160,41 +161,45 @@ async function executeWorkflowAction(gestureName, position = null) {
               const deltaX = currentHandPos.x - lastHandPosition.x
               const deltaY = currentHandPos.y - lastHandPosition.y
 
-              // Amplify movement (multiply by screen size for sensitivity)
-              const screenWidth = await screen.width()
-              const screenHeight = await screen.height()
-              const rawMoveX = deltaX * screenWidth * 3 // 3x multiplier for trackpad-like speed
-              const rawMoveY = deltaY * screenHeight * 3
+              // Dead zone - ignore tiny movements (hand tremor/noise)
+              const DEAD_ZONE = 0.003 // Ignore movements smaller than 0.3% of screen
+              const movementMagnitude = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
 
-              // Apply exponential smoothing (reduces jitter, makes movement fluid)
-              smoothedMouseVelocity.x = (SMOOTHING_FACTOR * smoothedMouseVelocity.x) + ((1 - SMOOTHING_FACTOR) * rawMoveX)
-              smoothedMouseVelocity.y = (SMOOTHING_FACTOR * smoothedMouseVelocity.y) + ((1 - SMOOTHING_FACTOR) * rawMoveY)
+              if (movementMagnitude > DEAD_ZONE) {
+                // Amplify movement (multiply by screen size for sensitivity)
+                const screenWidth = await screen.width()
+                const screenHeight = await screen.height()
+                const rawMoveX = deltaX * screenWidth * 1.5 // Trackpad-like sensitivity
+                const rawMoveY = deltaY * screenHeight * 1.5
 
-              const moveX = Math.floor(smoothedMouseVelocity.x)
-              const moveY = Math.floor(smoothedMouseVelocity.y)
+                // Apply exponential smoothing for buttery smoothness
+                smoothedMouseVelocity.x = (SMOOTHING_FACTOR * smoothedMouseVelocity.x) + ((1 - SMOOTHING_FACTOR) * rawMoveX)
+                smoothedMouseVelocity.y = (SMOOTHING_FACTOR * smoothedMouseVelocity.y) + ((1 - SMOOTHING_FACTOR) * rawMoveY)
 
-              // Get current mouse position and add smoothed delta
-              const currentMousePos = await mouse.getPosition()
-              const newX = currentMousePos.x + moveX
-              const newY = currentMousePos.y + moveY
+                // DIRECT MOVEMENT with smoothed velocity
+                const currentMousePos = await mouse.getPosition()
+                const newX = currentMousePos.x + smoothedMouseVelocity.x
+                const newY = currentMousePos.y + smoothedMouseVelocity.y
 
-              // Clamp to screen bounds
-              const finalX = Math.max(0, Math.min(screenWidth - 1, newX))
-              const finalY = Math.max(0, Math.min(screenHeight - 1, newY))
+                // Clamp to screen bounds
+                const finalX = Math.max(0, Math.min(screenWidth - 1, Math.round(newX)))
+                const finalY = Math.max(0, Math.min(screenHeight - 1, Math.round(newY)))
 
-              console.log('📍 Smoothed Delta:', moveX, moveY, '→ Moving to:', finalX, finalY)
-              await mouse.setPosition({ x: finalX, y: finalY })
-              message = `Moved cursor by (${moveX}, ${moveY})`
+                await mouse.setPosition({ x: finalX, y: finalY })
+
+                message = `Moved to (${finalX}, ${finalY})`
+              } else {
+                // Movement too small - stay still
+                message = 'Holding position'
+              }
             } else {
               // First detection - just store position, don't move
-              console.log('🆕 First palm detection - initializing tracking')
               message = 'Tracking initialized'
             }
 
             // Update last position for next delta calculation
             lastHandPosition = currentHandPos
           } else {
-            console.log('❌ No position data - actionConfig.position:', actionConfig.position)
             return { success: false, message: 'No position data for cursor movement' }
           }
           break
@@ -334,11 +339,23 @@ io.on('connection', (socket) => {
 
   // Gesture detected event
   socket.on('gesture:detected', async (data) => {
-    console.log('Gesture detected:', data)
+    // Only log non-continuous gestures to avoid console spam
+    if (data.gesture !== 'palm' && data.gesture !== 'palm_release' &&
+        data.gesture !== 'continuous_motion' && data.gesture !== 'continuous_motion_release') {
+      console.log('Gesture detected:', data.gesture)
+    }
 
-    // Handle palm release - reset tracking
+    // Handle palm release - reset tracking (legacy, keep for backwards compatibility)
     if (data.gesture === 'palm_release') {
       console.log('🖐️ Palm released - resetting mouse tracking')
+      lastHandPosition = null
+      smoothedMouseVelocity = { x: 0, y: 0 } // Reset smoothing
+      return
+    }
+
+    // Handle continuous motion release - reset tracking
+    if (data.gesture === 'continuous_motion_release') {
+      console.log('👉 Point released - resetting continuous motion tracking')
       lastHandPosition = null
       smoothedMouseVelocity = { x: 0, y: 0 } // Reset smoothing
       return
