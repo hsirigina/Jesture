@@ -8,10 +8,166 @@ import ReactFlow, {
   addEdge,
   useReactFlow,
   ReactFlowProvider,
+  Handle,
+  Position,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { workflowService } from '../services/workflowService'
 import './WorkflowCanvas.css'
+
+// Custom Node Components
+const InputNode = ({ data, selected }) => {
+  const getGestureIcon = () => {
+    const gesture = data.gesture
+    const iconColor = '#ffffff'
+
+    if (gesture === 'thumbs_up') {
+      return (
+        <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>
+        </svg>
+      )
+    } else if (gesture === 'thumbs_down') {
+      return (
+        <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/>
+        </svg>
+      )
+    } else if (gesture === 'palm') {
+      return (
+        <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M23 5.5V20c0 2.2-1.8 4-4 4h-7.3c-1.08 0-2.1-.43-2.85-1.19L1 14.83c1.76-1.77 2.32-4.15.57-5.93.41-.42 1.09-.42 1.5 0l3.57 3.57c.09.09.21.14.34.14s.25-.05.35-.15c.09-.09.15-.22.15-.35V3c0-.55.45-1 1-1s1 .45 1 1v9.5c0 .28.22.5.5.5s.5-.22.5-.5V1.5c0-.55.45-1 1-1s1 .45 1 1v11.5c0 .28.22.5.5.5s.5-.22.5-.5V2c0-.55.45-1 1-1s1 .45 1 1v11.5c0 .28.22.5.5.5s.5-.22.5-.5V5.5c0-.55.45-1 1-1s1 .45 1 1z"/>
+        </svg>
+      )
+    } else if (gesture === 'peace') {
+      return (
+        <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M12 2c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2s2-.9 2-2V4c0-1.1-.9-2-2-2zm5 0c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2s2-.9 2-2V4c0-1.1-.9-2-2-2zM9.5 11h-2c-.83 0-1.54.5-1.84 1.22l-1.16 2.71C4.22 15.5 4 16.08 4 16.69V20c0 2.21 1.79 4 4 4h4c1.1 0 2-.9 2-2V13c0-.55-.45-1-1-1h-3.5z"/>
+        </svg>
+      )
+    } else if (gesture === 'swipe_left') {
+      return (
+        <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+        </svg>
+      )
+    } else if (gesture === 'swipe_right') {
+      return (
+        <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
+        </svg>
+      )
+    } else if (gesture === 'continuous_motion') {
+      return (
+        <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+        </svg>
+      )
+    }
+
+    // Default hand icon
+    return (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+        <path d="M23 5.5V20c0 2.2-1.8 4-4 4h-7.3c-1.08 0-2.1-.43-2.85-1.19L1 14.83c1.76-1.77 2.32-4.15.57-5.93.41-.42 1.09-.42 1.5 0l3.57 3.57c.09.09.21.14.34.14s.25-.05.35-.15c.09-.09.15-.22.15-.35V3c0-.55.45-1 1-1s1 .45 1 1v9.5c0 .28.22.5.5.5s.5-.22.5-.5V1.5c0-.55.45-1 1-1s1 .45 1 1v11.5c0 .28.22.5.5.5s.5-.22.5-.5V2c0-.55.45-1 1-1s1 .45 1 1v11.5c0 .28.22.5.5.5s.5-.22.5-.5V5.5c0-.55.45-1 1-1s1 .45 1 1z"/>
+      </svg>
+    )
+  }
+
+  return (
+    <div className={`input-circle-node ${selected ? 'selected' : ''}`}>
+      <Handle type="target" position={Position.Left} />
+      <div className="node-circle-icon">
+        {getGestureIcon()}
+      </div>
+      <Handle type="source" position={Position.Right} />
+      <div className="node-circle-tooltip">{data.label}</div>
+    </div>
+  )
+}
+
+const OutputNode = ({ data, selected }) => {
+  const getActionIcon = () => {
+    const iconColor = '#2d3748'
+
+    if (data.category === 'keyboard') {
+      return (
+        <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"/>
+        </svg>
+      )
+    } else if (data.category === 'mouse') {
+      return (
+        <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M13 1.07V9h7c0-4.08-3.05-7.44-7-7.93zM4 15c0 4.42 3.58 8 8 8s8-3.58 8-8v-4H4v4zm7-13.93C7.05 1.56 4 4.92 4 9h7V1.07z"/>
+        </svg>
+      )
+    } else if (data.category === 'light') {
+      return (
+        <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/>
+        </svg>
+      )
+    }
+
+    return (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill={iconColor}>
+        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+      </svg>
+    )
+  }
+
+  return (
+    <div className={`output-circle-node ${selected ? 'selected' : ''}`}>
+      <Handle type="target" position={Position.Left} />
+      <div className="node-circle-icon">
+        {getActionIcon()}
+      </div>
+      <Handle type="source" position={Position.Right} />
+      <div className="node-circle-tooltip">{data.label}</div>
+    </div>
+  )
+}
+
+const ModifierNode = ({ data, selected }) => {
+  const getModifierIcon = () => {
+    const iconColor = '#ffffff'
+
+    // Check if this is a cooldown node
+    if (data.label === 'Cooldown' || data.config?.cooldown !== undefined) {
+      return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill={iconColor}>
+          <path d="M6 2v6h.01L6 8.01 10 12l-4 4 .01.01H6V22h12v-5.99h-.01L18 16l-4-4 4-3.99-.01-.01H18V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/>
+        </svg>
+      )
+    }
+
+    // Default to clock/timer icon for Hold Time
+    return (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill={iconColor}>
+        <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
+        <path d="M12.5 7H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
+      </svg>
+    )
+  }
+
+  return (
+    <div className={`modifier-circle-node ${selected ? 'selected' : ''}`}>
+      <Handle type="target" position={Position.Left} />
+      <div className="modifier-icon">
+        {getModifierIcon()}
+      </div>
+      <Handle type="source" position={Position.Right} />
+      <div className="modifier-tooltip">{data.label}</div>
+    </div>
+  )
+}
+
+// Map node types to components
+const nodeTypes = {
+  input: InputNode,
+  output: OutputNode,
+  modifier: ModifierNode,
+}
 
 // Available gesture input nodes
 const GESTURE_INPUTS = [
@@ -213,7 +369,7 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
 
       const newNode = {
         id: `node-${nodeIdCounter}`,
-        type: 'default', // Use default type for all nodes (has both input and output handles)
+        type: data.nodeType, // Use the correct type: 'input', 'output', or 'modifier'
         position,
         data: {
           label: data.nodeData.label,
@@ -243,7 +399,7 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
         // Create Hold Time modifier (placed to the left of input)
         const holdTimeNode = {
           id: `node-${currentNodeId}`,
-          type: 'default',
+          type: 'modifier',
           position: { x: position.x - 200, y: position.y },
           data: {
             label: 'Hold Time',
@@ -263,7 +419,7 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
         // Create Cooldown modifier (placed to the right of input)
         const cooldownNode = {
           id: `node-${currentNodeId}`,
-          type: 'default',
+          type: 'modifier',
           position: { x: position.x + 200, y: position.y },
           data: {
             label: 'Cooldown',
@@ -660,6 +816,7 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={onNodeClick}
+            nodeTypes={nodeTypes}
             fitView
           >
             <Controls />
