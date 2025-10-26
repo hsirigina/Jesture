@@ -36,6 +36,11 @@ const AI_WORKFLOW_AGENT_URL = 'http://127.0.0.1:8003'  // New AI Workflow Agent
 // Store last execution time for cooldown tracking
 let gestureLastExecuted = new Map() // gesture -> timestamp
 
+// Store gesture hold start times for hold time tracking
+let gestureHoldStart = new Map() // gesture -> timestamp when first detected
+
+// REMOVED: gestureCurrentlyHeld - no longer needed, cooldown handles everything
+
 // Store last hand position for relative mouse movement
 let lastHandPosition = null // { x, y }
 
@@ -161,18 +166,57 @@ async function executeWorkflowAction(gestureName, position = null) {
     console.log('⚠️ No position data received')
   }
 
-  // Check cooldown modifier
+  const now = Date.now()
+
+  // Check cooldown modifier FIRST - if in cooldown, don't even start hold timer
   const cooldownModifier = actionConfig.modifiers?.find(m => m.category === 'modifier' && m.config?.cooldown)
   if (cooldownModifier) {
     const cooldown = cooldownModifier.config.cooldown
     const lastExecuted = gestureLastExecuted.get(gestureName) || 0
-    const now = Date.now()
     const timeSinceLastExecution = now - lastExecuted
 
     if (timeSinceLastExecution < cooldown) {
       const remainingCooldown = ((cooldown - timeSinceLastExecution) / 1000).toFixed(1)
-      console.log(`⏸️  Cooldown active for ${gestureName}: ${remainingCooldown}s remaining`)
+      // Don't spam cooldown logs - only log once per second
+      if (timeSinceLastExecution % 1000 < 100) {
+        console.log(`⏸️  Cooldown active for ${gestureName}: ${remainingCooldown}s remaining`)
+      }
+      // Reset hold timer if it exists (user shouldn't accumulate hold time during cooldown)
+      gestureHoldStart.delete(gestureName)
       return { success: false, message: `Cooldown: ${remainingCooldown}s` }
+    }
+  }
+
+  // Check hold time modifier - gesture must be held for specified duration
+  const holdTimeModifier = actionConfig.modifiers?.find(m => m.category === 'modifier' && m.config?.holdTime !== undefined)
+  if (holdTimeModifier) {
+    const requiredHoldTime = holdTimeModifier.config.holdTime
+
+    // Check if this is the first detection or continuation
+    if (!gestureHoldStart.has(gestureName)) {
+      // First detection - start the timer
+      gestureHoldStart.set(gestureName, now)
+      const requiredSeconds = (requiredHoldTime / 1000).toFixed(1)
+      console.log(`⏱️  Hold timer started for ${gestureName}: needs ${requiredSeconds}s`)
+      return { success: false, message: `Hold ${gestureName}...` }
+    } else {
+      // Continuation - check if held long enough
+      const holdStartTime = gestureHoldStart.get(gestureName)
+      const holdDuration = now - holdStartTime
+
+      if (holdDuration < requiredHoldTime) {
+        const remainingTime = ((requiredHoldTime - holdDuration) / 1000).toFixed(1)
+        return { success: false, message: `Hold ${remainingTime}s...` }
+      }
+      // Held long enough - clear the timer, set cooldown immediately to prevent double-trigger
+      gestureHoldStart.delete(gestureName)
+
+      // Set cooldown NOW (before action executes) to block rapid re-triggers
+      if (cooldownModifier) {
+        gestureLastExecuted.set(gestureName, now)
+      }
+
+      console.log(`✅ Hold time satisfied for ${gestureName}`)
     }
   }
 
@@ -184,8 +228,6 @@ async function executeWorkflowAction(gestureName, position = null) {
         const text = actionConfig.config.text
         await keyboard.type(text)
         console.log(`✅ Executed workflow keyboard action: ${gestureName} → Type "${text}"`)
-        // Record execution time for cooldown
-        gestureLastExecuted.set(gestureName, Date.now())
         return { success: true, message: `Typed "${text}"` }
       }
 
@@ -195,8 +237,6 @@ async function executeWorkflowAction(gestureName, position = null) {
         const key = Key[keyName] || keyName
         await keyboard.type(key)
         console.log(`✅ Executed workflow keyboard action: ${gestureName} → Press ${keyName}`)
-        // Record execution time for cooldown
-        gestureLastExecuted.set(gestureName, Date.now())
         return { success: true, message: `Pressed ${keyName}` }
       }
     }
@@ -291,8 +331,6 @@ async function executeWorkflowAction(gestureName, position = null) {
       }
 
       console.log(`✅ Executed workflow mouse action: ${gestureName} → ${message}`)
-      // Record execution time for cooldown
-      gestureLastExecuted.set(gestureName, Date.now())
       return { success: true, message }
     }
 
@@ -324,8 +362,6 @@ async function executeWorkflowAction(gestureName, position = null) {
       }
 
       console.log(`✅ Executed workflow light action: ${gestureName} → ${message}`)
-      // Record execution time for cooldown
-      gestureLastExecuted.set(gestureName, Date.now())
       return { success: true, message }
     }
 
@@ -398,10 +434,11 @@ io.on('connection', (socket) => {
 
   // Gesture detected event
   socket.on('gesture:detected', async (data) => {
-    // Only log non-continuous gestures to avoid console spam
-    if (data.gesture !== 'palm' && data.gesture !== 'palm_release' &&
-        data.gesture !== 'continuous_motion' && data.gesture !== 'continuous_motion_release') {
-      console.log('Gesture detected:', data.gesture)
+    // Log all gestures for debugging (except releases)
+    if (data.gesture !== 'palm_release' &&
+        data.gesture !== 'continuous_motion_release' &&
+        data.gesture !== 'gesture_release') {
+      console.log('📥 Gesture received:', data.gesture, '| Active workflows:', activeWorkflowMappings.size)
     }
 
     // Handle palm release - reset tracking (legacy, keep for backwards compatibility)
@@ -417,6 +454,16 @@ io.on('connection', (socket) => {
       console.log('👉 Point released - resetting continuous motion tracking')
       lastHandPosition = null
       smoothedMouseVelocity = { x: 0, y: 0 } // Reset smoothing
+      return
+    }
+
+    // Handle gesture release - reset hold timer
+    if (data.gesture === 'gesture_release') {
+      const lastGesture = data.position?.lastGesture
+      if (lastGesture && gestureHoldStart.has(lastGesture)) {
+        console.log(`🔄 Gesture ${lastGesture} released - resetting hold timer`)
+        gestureHoldStart.delete(lastGesture)
+      }
       return
     }
 
@@ -467,13 +514,21 @@ io.on('connection', (socket) => {
       nodeMap.set(node.id, node)
     })
 
-    // Build a graph to trace paths from input → modifier → output
-    const nodeConnections = new Map()
+    // Build forward and backward connection graphs
+    const forwardConnections = new Map() // source -> [targets]
+    const backwardConnections = new Map() // target -> [sources]
     edges.forEach(edge => {
-      if (!nodeConnections.has(edge.source)) {
-        nodeConnections.set(edge.source, [])
+      // Forward
+      if (!forwardConnections.has(edge.source)) {
+        forwardConnections.set(edge.source, [])
       }
-      nodeConnections.get(edge.source).push(edge.target)
+      forwardConnections.get(edge.source).push(edge.target)
+
+      // Backward
+      if (!backwardConnections.has(edge.target)) {
+        backwardConnections.set(edge.target, [])
+      }
+      backwardConnections.get(edge.target).push(edge.source)
     })
 
     // Find all input nodes (gestures)
@@ -484,12 +539,13 @@ io.on('connection', (socket) => {
       const gesture = inputNode.data.gesture
       if (!gesture) return
 
-      // Trace path from input
+      // Trace path from input (both backwards and forwards)
       const visited = new Set()
       const modifiers = []
       let outputNode = null
 
-      const trace = (nodeId) => {
+      // Trace backwards to find modifiers BEFORE the input (e.g., HoldTime)
+      const traceBackward = (nodeId) => {
         if (visited.has(nodeId)) return
         visited.add(nodeId)
 
@@ -498,17 +554,39 @@ io.on('connection', (socket) => {
 
         if (node.data?.nodeType === 'modifier') {
           modifiers.push(node.data)
-        } else if (node.data?.nodeType === 'output' || node.data?.category === 'keyboard' || node.data?.category === 'light') {
+        }
+
+        // Continue tracing backwards
+        const sources = backwardConnections.get(nodeId) || []
+        sources.forEach(traceBackward)
+      }
+
+      // Trace forwards to find modifiers AFTER the input and the output action
+      const traceForward = (nodeId) => {
+        if (visited.has(nodeId)) return
+        visited.add(nodeId)
+
+        const node = nodeMap.get(nodeId)
+        if (!node) return
+
+        if (node.data?.nodeType === 'modifier') {
+          modifiers.push(node.data)
+        } else if (node.data?.nodeType === 'output' || node.data?.category === 'keyboard' || node.data?.category === 'light' || node.data?.category === 'mouse') {
           outputNode = node
           return
         }
 
-        // Continue tracing
-        const connections = nodeConnections.get(nodeId) || []
-        connections.forEach(trace)
+        // Continue tracing forwards
+        const targets = forwardConnections.get(nodeId) || []
+        targets.forEach(traceForward)
       }
 
-      trace(inputNode.id)
+      // First trace backwards from input to find HoldTime
+      const inputSources = backwardConnections.get(inputNode.id) || []
+      inputSources.forEach(traceBackward)
+
+      // Then trace forwards from input to find Cooldown and Output
+      traceForward(inputNode.id)
 
       if (outputNode) {
         const actionConfig = {

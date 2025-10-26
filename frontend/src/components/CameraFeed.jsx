@@ -62,6 +62,7 @@ const CameraFeed = ({ onGestureDetected }) => {
   const continuousMotionActiveRef = useRef(false) // Lock for continuous motion
   const gestureBufferRef = useRef([]) // Buffer to smooth gesture detection over multiple frames
   const palmPointWaitingRef = useRef(null) // Track palm/point waiting for swipe (AI Mode feature)
+  const noGestureFrameCount = useRef(0) // Count consecutive frames with no gesture before releasing
 
   useEffect(() => {
     let camera = null
@@ -386,86 +387,87 @@ const CameraFeed = ({ onGestureDetected }) => {
         }
       }
 
-      // HOLD TIME & COOLDOWN LOGIC
+      // SEND GESTURES TO SERVER - Let server handle hold time and cooldown
       if (gestureName) {
-        // Determine hold time: swipes, palm, and point are instant for tracking, others need 2000ms
+        // Reset no-gesture counter when gesture is detected
+        noGestureFrameCount.current = 0
+
         const isSwipeGesture = gestureName === 'swipe_left' || gestureName === 'swipe_right'
         const isPalmGesture = gestureName === 'palm'
         const isPointGesture = gestureName === 'point'
-        const requiredHoldTime = (isSwipeGesture || isPalmGesture || isPointGesture) ? 0 : 2000
 
-        // Check if this is a new gesture or continuation
-        if (gestureHoldStartRef.current?.name === gestureName) {
-          // Same gesture continuing
-          const holdDuration = now - gestureHoldStartRef.current.startTime
-
-          // Update progress bar (0-100%)
-          const progress = Math.min(100, (holdDuration / requiredHoldTime) * 100)
-          setHoldProgress({ gesture: gestureName, progress })
-
-          // Check cooldown period (NO cooldown for palm and point, 500ms for others)
-          const cooldownTime = (isPalmGesture || isPointGesture) ? 0 : 500
-          const timeSinceLastTrigger = now - lastTriggeredGestureRef.current.time
-          const isSameGestureInCooldown =
-            lastTriggeredGestureRef.current.name === gestureName &&
-            timeSinceLastTrigger < cooldownTime
-
-          if (holdDuration >= requiredHoldTime && !isSameGestureInCooldown) {
-            // Gesture held long enough and not in cooldown
-            setDetectedGesture(gestureName)
-            setHoldProgress({ gesture: null, progress: 0 })
-
-            // Clear previous timeout
-            if (gestureTimeoutRef.current) {
-              clearTimeout(gestureTimeoutRef.current)
-            }
-
-            // Hide after 2 seconds
-            gestureTimeoutRef.current = setTimeout(() => {
-              setDetectedGesture(null)
-            }, 2000)
-
-            // Trigger callback with hand position data
-            if (onGestureDetected) {
-              // Get index finger tip position (landmark 8) for cursor tracking
-              const indexTip = landmarks[8]
-
-              // Convert 'point' gesture to 'continuous_motion' with position tracking
-              const actualGestureName = isPointGesture ? 'continuous_motion' : gestureName
-
-              onGestureDetected(actualGestureName, 0.9, {
-                x: indexTip.x,
-                y: indexTip.y
-              })
-            }
-
-            // Update last triggered
-            lastTriggeredGestureRef.current = { name: gestureName, time: now }
+        // If we switched to a DIFFERENT gesture, release the previous one
+        if (lastTriggeredGestureRef.current.name && lastTriggeredGestureRef.current.name !== gestureName) {
+          const previousGesture = lastTriggeredGestureRef.current.name
+          console.log(`🔄 Gesture changed from ${previousGesture} to ${gestureName}`)
+          if (onGestureDetected) {
+            onGestureDetected('gesture_release', 0, { lastGesture: previousGesture })
           }
-        } else {
-          // New gesture detected, start hold timer
-          gestureHoldStartRef.current = { name: gestureName, startTime: now }
-          setHoldProgress({ gesture: gestureName, progress: 0 })
-          console.log('👁️ Gesture candidate:', gestureName)
+        }
+
+        // Throttle gesture sending (only send every 100ms to avoid spam, except for continuous tracking)
+        const isContinuousTracking = isPalmGesture || isPointGesture
+        const throttleTime = isContinuousTracking ? 0 : 100 // 100ms throttle for discrete gestures
+        const timeSinceLastSend = now - (lastTriggeredGestureRef.current.time || 0)
+        const shouldSend = timeSinceLastSend >= throttleTime || lastTriggeredGestureRef.current.name !== gestureName
+
+        if (shouldSend) {
+          // Visual feedback
+          setDetectedGesture(gestureName)
+          if (gestureTimeoutRef.current) {
+            clearTimeout(gestureTimeoutRef.current)
+          }
+          gestureTimeoutRef.current = setTimeout(() => {
+            setDetectedGesture(null)
+          }, 2000)
+
+          // Send to server with hand position data
+          if (onGestureDetected) {
+            const indexTip = landmarks[8]
+
+            // Convert 'point' gesture to 'continuous_motion' with position tracking
+            const actualGestureName = isPointGesture ? 'continuous_motion' : gestureName
+
+            onGestureDetected(actualGestureName, 0.9, {
+              x: indexTip.x,
+              y: indexTip.y
+            })
+          }
+
+          // Update last send time
+          lastTriggeredGestureRef.current = { name: gestureName, time: now }
         }
       } else {
-        // No gesture detected, reset hold timer and progress
-        gestureHoldStartRef.current = null
-        setHoldProgress({ gesture: null, progress: 0 })
+        // No gesture detected - but wait for stable "no gesture" before releasing
+        noGestureFrameCount.current++
 
-        // Reset tracking if palm or point was being tracked
-        if (lastTriggeredGestureRef.current.name === 'palm') {
-          // Send reset signal to server
+        // Only send release after 10 consecutive frames with no gesture (~200ms at 50fps)
+        // This prevents flickering from resetting the hold timer
+        if (noGestureFrameCount.current >= 10 && lastTriggeredGestureRef.current.name) {
+          const lastGesture = lastTriggeredGestureRef.current.name
+          console.log(`🔓 Releasing gesture: ${lastGesture} (${noGestureFrameCount.current} frames with no gesture)`)
+
+          // Send gesture_release to reset hold timers on server
           if (onGestureDetected) {
+            onGestureDetected('gesture_release', 0, { lastGesture })
+          }
+
+          // Reset tracking for palm
+          if (lastGesture === 'palm') {
             onGestureDetected('palm_release', 0, null)
           }
-        }
-        if (lastTriggeredGestureRef.current.name === 'point') {
-          // Send reset signal for continuous motion
-          continuousMotionActiveRef.current = false // Clear lock
-          if (onGestureDetected) {
+
+          // Reset tracking for point (continuous_motion)
+          if (lastGesture === 'point') {
+            continuousMotionActiveRef.current = false // Clear lock
             onGestureDetected('continuous_motion_release', 0, null)
           }
+
+          // Clear last triggered
+          lastTriggeredGestureRef.current = { name: null, time: 0 }
+
+          // Reset the counter so next gesture starts fresh
+          noGestureFrameCount.current = 0
         }
       }
     }
