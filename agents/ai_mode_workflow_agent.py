@@ -27,18 +27,18 @@ app = Flask(__name__)
 CORS(app)
 
 # Configure Claude (Anthropic)
-#claude_client = anthropic.Anthropic(
-    #api_key=os.getenv("ANTHROPIC_KEY")
-#)
+claude_client = anthropic.Anthropic(
+    api_key=os.getenv("ANTHROPIC_API_KEY")
+)
 
 # Initialize uAgent with environment variables for Agentverse
-AGENT_SEED = os.getenv("AGENT_SEED_PHRASE", "workflow_agent_seed_phrase_67890")
+AGENT_SEED = os.getenv("WORKFLOW_AGENT_SEED", "workflow_agent_seed_phrase_67890")
 
 workflow_agent = Agent(
     name="ai_workflow_generator",
     seed=AGENT_SEED,
-    port=8003,
-    endpoint=["http://127.0.0.1:8003/submit"]
+    port=8001,  # uAgent port (different from Flask)
+    mailbox=True  # Enable Agentverse Mailbox (removes need for endpoint)
 )
 
 # MCP Gesture Hub endpoint
