@@ -23,13 +23,13 @@ app = Flask(__name__)
 CORS(app)
 
 # Initialize uAgent with environment variables for Agentverse
-AGENT_SEED = os.getenv("AGENT_SEED_PHRASE", "gesture_hub_seed_phrase_12345")
+AGENT_SEED = os.getenv("MCP_HUB_SEED", "gesture_hub_seed_phrase_12345")
 
 gesture_hub_agent = Agent(
     name="gesture_hub",
     seed=AGENT_SEED,
-    port=8002,
-    endpoint=["http://127.0.0.1:8002/submit"]
+    port=8000,  # uAgent port (different from Flask)
+    mailbox=True  # Enable Agentverse Mailbox (removes need for endpoint)
 )
 
 # MCP Protocol Models
@@ -372,7 +372,8 @@ if __name__ == "__main__":
     print()
     print("🤖 uAgent Protocol:")
     print("   Address: Will be displayed after startup")
-    print("   Port: 8002")
+    print("   Port: 8000 (uAgent)")
+    print("   HTTP API Port: 8002 (Flask)")
     print("=" * 60)
     print()
 
