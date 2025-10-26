@@ -27,9 +27,9 @@ app = Flask(__name__)
 CORS(app)
 
 # Configure Claude (Anthropic)
-claude_client = anthropic.Anthropic(
-    api_key=os.getenv("ANTHROPIC_KEY")
-)
+#claude_client = anthropic.Anthropic(
+    #api_key=os.getenv("ANTHROPIC_KEY")
+#)
 
 # Initialize uAgent with environment variables for Agentverse
 AGENT_SEED = os.getenv("AGENT_SEED_PHRASE", "workflow_agent_seed_phrase_67890")
