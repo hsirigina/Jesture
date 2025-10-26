@@ -97,6 +97,9 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
   const [selectedNode, setSelectedNode] = useState(null)
   const [saving, setSaving] = useState(false)
   const [nodeIdCounter, setNodeIdCounter] = useState(1)
+  const [showAIChat, setShowAIChat] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiBuilding, setAiBuilding] = useState(false)
   const reactFlowWrapper = useRef(null)
   const { screenToFlowPosition } = useReactFlow()
 
@@ -361,6 +364,34 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
     )
   }
 
+  const handleAIBuildWorkflow = () => {
+    setShowAIChat(false)
+    setAiBuilding(true)
+    setWorkflowName('Smart Light Control')
+    setWorkflowDescription('AI-generated workflow for controlling smart lights with gestures')
+
+    // Build light control workflow with hardcoded nodes
+    setTimeout(() => {
+      const lightWorkflow = [
+        { id: '1', type: 'input', position: { x: 100, y: 100 }, data: { label: 'Thumbs Up', gesture: 'thumbs_up', type: 'discrete' } },
+        { id: '2', type: 'output', position: { x: 400, y: 100 }, data: { label: 'Light Action', category: 'light', actionType: 'turnOn', config: { action: 'turnOn' } } },
+        { id: '3', type: 'input', position: { x: 100, y: 200 }, data: { label: 'Thumbs Down', gesture: 'thumbs_down', type: 'discrete' } },
+        { id: '4', type: 'output', position: { x: 400, y: 200 }, data: { label: 'Light Action', category: 'light', actionType: 'turnOff', config: { action: 'turnOff' } } },
+        { id: '5', type: 'input', position: { x: 100, y: 300 }, data: { label: 'Peace', gesture: 'peace', type: 'discrete' } },
+        { id: '6', type: 'output', position: { x: 400, y: 300 }, data: { label: 'Light Action', category: 'light', actionType: 'colorCycle', config: { action: 'colorCycle' } } },
+      ]
+      const lightEdges = [
+        { id: 'e1-2', source: '1', target: '2' },
+        { id: 'e3-4', source: '3', target: '4' },
+        { id: 'e5-6', source: '5', target: '6' },
+      ]
+      setNodes(lightWorkflow)
+      setEdges(lightEdges)
+      setNodeIdCounter(7)
+      setAiBuilding(false)
+    }, 2000)
+  }
+
   const handleActionTypeChange = (actionType) => {
     if (!selectedNode) return
 
@@ -418,6 +449,18 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
           />
         </div>
         <div className="canvas-actions">
+          <button
+            className="btn"
+            style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              border: 'none',
+              fontWeight: '600'
+            }}
+            onClick={() => setShowAIChat(true)}
+          >
+            ✨ Ask AI to Build
+          </button>
           <button className="btn btn-secondary" onClick={onBack}>
             Back
           </button>
@@ -426,6 +469,127 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
           </button>
         </div>
       </div>
+
+      {/* AI Chat Modal */}
+      {showAIChat && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          animation: 'fadeIn 0.2s ease'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '2rem',
+            maxWidth: '500px',
+            width: '90%',
+            animation: 'slideUp 0.3s ease'
+          }}>
+            <h3 style={{ marginTop: 0, marginBottom: '1rem', fontWeight: '600' }}>What should this workflow do?</h3>
+            <div style={{
+              marginBottom: '1.5rem',
+              minHeight: '60px',
+              fontSize: '1.1rem',
+              lineHeight: '1.6',
+              color: '#333'
+            }}>
+              {aiPrompt.split('').map((char, i) => (
+                <span key={i} style={{
+                  animation: `typeChar 0.05s ease ${i * 0.05}s both`
+                }}>{char}</span>
+              ))}
+            </div>
+            <input
+              type="text"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleAIBuildWorkflow()}
+              placeholder="e.g., Navigate slides during presentations..."
+              autoFocus
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '2px solid #e0e0e0',
+                borderRadius: '8px',
+                fontSize: '1rem',
+                marginBottom: '1rem'
+              }}
+            />
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowAIChat(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleAIBuildWorkflow}
+                disabled={!aiPrompt.trim()}
+              >
+                Build Workflow
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Building Animation */}
+      {aiBuilding && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          animation: 'fadeIn 0.2s ease'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '3rem 4rem',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              fontSize: '3rem',
+              marginBottom: '1rem',
+              animation: 'spin 1s linear infinite'
+            }}>✨</div>
+            <div style={{ fontSize: '1.3rem', fontWeight: '600', color: '#333' }}>
+              Building Smart Light Workflow...
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes typeChar {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
 
       <div className="canvas-main">
         {/* Left Sidebar - Node Library */}
