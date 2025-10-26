@@ -60,16 +60,11 @@ def get_active_window_context():
 
     try:
         if system == "Darwin":  # macOS
-            # Get all visible apps, excluding Electron (the Jesture app itself)
+            # Get the frontmost application name
             script = '''
             tell application "System Events"
-                set visibleApps to name of every application process whose visible is true
-                repeat with appName in visibleApps
-                    if appName is not "Electron" then
-                        return appName
-                    end if
-                end repeat
-                return "Unknown"
+                set frontApp to name of first application process whose frontmost is true
+                return frontApp
             end tell
             '''
             result = subprocess.run(
@@ -79,11 +74,106 @@ def get_active_window_context():
             )
             app_name = result.stdout.strip()
 
+            # Get window title based on app type
+            window_title = ""
+            try:
+                if app_name in ["Google Chrome", "Chrome"]:
+                    # Get Chrome active tab title
+                    title_script = 'tell application "Google Chrome" to get title of active tab of front window'
+                    title_result = subprocess.run(
+                        ["osascript", "-e", title_script],
+                        capture_output=True,
+                        text=True,
+                        timeout=1
+                    )
+                    window_title = title_result.stdout.strip()
+                elif app_name == "Safari":
+                    # Get Safari current tab title
+                    title_script = 'tell application "Safari" to get name of current tab of front window'
+                    title_result = subprocess.run(
+                        ["osascript", "-e", title_script],
+                        capture_output=True,
+                        text=True,
+                        timeout=1
+                    )
+                    window_title = title_result.stdout.strip()
+                elif app_name == "Firefox":
+                    # Firefox doesn't support AppleScript well, use window name from System Events
+                    title_script = 'tell application "System Events" to get name of front window of process "Firefox"'
+                    title_result = subprocess.run(
+                        ["osascript", "-e", title_script],
+                        capture_output=True,
+                        text=True,
+                        timeout=1
+                    )
+                    window_title = title_result.stdout.strip()
+                else:
+                    # For other apps, try to get window name from System Events
+                    title_script = f'tell application "System Events" to get name of front window of process "{app_name}"'
+                    title_result = subprocess.run(
+                        ["osascript", "-e", title_script],
+                        capture_output=True,
+                        text=True,
+                        timeout=1
+                    )
+                    window_title = title_result.stdout.strip()
+            except:
+                window_title = ""
+
+            # If frontmost is Electron (Jesture app), get the second visible app
+            if app_name == "Electron":
+                script2 = '''
+                tell application "System Events"
+                    set visibleApps to application processes whose visible is true
+                    repeat with appProc in visibleApps
+                        set appName to name of appProc
+                        if appName is not "Electron" then
+                            return appName
+                        end if
+                    end repeat
+                    return "Unknown"
+                end tell
+                '''
+                result2 = subprocess.run(
+                    ["osascript", "-e", script2],
+                    capture_output=True,
+                    text=True
+                )
+                app_name = result2.stdout.strip()
+
+                # Get window title for the fallback app
+                window_title = ""
+                try:
+                    if app_name in ["Google Chrome", "Chrome"]:
+                        title_script = 'tell application "Google Chrome" to get title of active tab of front window'
+                        title_result = subprocess.run(
+                            ["osascript", "-e", title_script],
+                            capture_output=True,
+                            text=True,
+                            timeout=1
+                        )
+                        window_title = title_result.stdout.strip()
+                    elif app_name == "Safari":
+                        title_script = 'tell application "Safari" to get name of current tab of front window'
+                        title_result = subprocess.run(
+                            ["osascript", "-e", title_script],
+                            capture_output=True,
+                            text=True,
+                            timeout=1
+                        )
+                        window_title = title_result.stdout.strip()
+                except:
+                    window_title = ""
+
+            # Combine app name and window title for better context detection
+            full_context = f"{app_name} - {window_title}" if window_title else app_name
+
             return {
                 "app": app_name,
+                "window_title": window_title,
                 "platform": "macOS",
-                "context_type": detect_context_type(app_name),
-                "page_context": detect_page_context(app_name)
+                "context_type": detect_context_type(full_context),
+                "page_context": detect_page_context(full_context)
             }
 
         elif system == "Windows":

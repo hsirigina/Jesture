@@ -127,7 +127,7 @@ function AppContent() {
 
     // Route gesture based on active mode
     if (aiModeActive) {
-      // Filter out release events in AI Mode - they shouldn't trigger actions
+      // Filter out palm_release/continuous_motion_release but keep gesture_release
       if (gestureName === 'palm_release' || gestureName === 'continuous_motion_release') {
         console.log('🚫 Ignoring release event in AI Mode:', gestureName)
         return
@@ -137,7 +137,8 @@ function AppContent() {
       console.log('🤖 Routing gesture to AI agent:', gestureName)
       socketClient.emit('ai-gesture:detected', {
         gesture: gestureName,
-        confidence: confidence
+        confidence: confidence,
+        lastGesture: position?.lastGesture // Include lastGesture from position data
       })
     } else {
       // Send gesture to server via Socket.IO with position data (normal workflow mode)

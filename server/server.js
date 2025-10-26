@@ -39,7 +39,8 @@ let gestureLastExecuted = new Map() // gesture -> timestamp
 // Store gesture hold start times for hold time tracking
 let gestureHoldStart = new Map() // gesture -> timestamp when first detected
 
-// REMOVED: gestureCurrentlyHeld - no longer needed, cooldown handles everything
+// Track last detected gesture to prevent false positives during transitions
+let lastDetectedGesture = { name: null, timestamp: 0 }
 
 // Store last hand position for relative mouse movement
 let lastHandPosition = null // { x, y }
@@ -768,6 +769,87 @@ io.on('connection', (socket) => {
 
     console.log('🤚 AI Mode gesture detected:', data.gesture)
 
+    // Handle gesture_release - reset hold timers
+    if (data.gesture === 'gesture_release') {
+      const lastGesture = data.lastGesture || data.gesture
+      console.log(`🔓 AI Mode: Releasing hold timer for ${lastGesture}`)
+      gestureHoldStart.delete(lastGesture)
+      return
+    }
+
+    // STATIC GESTURES REQUIRE HOLD TIME (swipes are motions, not poses)
+    const HOLD_TIMES = {
+      'palm': 1500,           // 1.5 seconds
+      'thumbs_up': 500,       // 500ms
+      'thumbs_down': 500,     // 500ms
+      'peace': 500,           // 500ms
+      'point': 500            // 500ms
+    }
+
+    const gestureName = data.gesture
+
+    // Clear timers for OTHER gestures when ANY new gesture starts
+    // (Prevents stale timers from previous gestures)
+    const isSwipe = gestureName.startsWith('swipe_')
+
+    if (HOLD_TIMES[gestureName] || isSwipe) {
+      // If starting a new static gesture OR doing a swipe, clear all other timers
+      for (let [gesture, _] of gestureHoldStart) {
+        if (gesture !== gestureName) {
+          console.log(`🔄 Clearing stale hold timer for ${gesture} (detected: ${gestureName})`)
+          gestureHoldStart.delete(gesture)
+        }
+      }
+    }
+
+    // Skip hold time for continuous_motion and swipes
+    if (gestureName !== 'continuous_motion' && HOLD_TIMES[gestureName]) {
+      const HOLD_TIME = HOLD_TIMES[gestureName]
+      const now = Date.now()
+
+      if (!gestureHoldStart.has(gestureName)) {
+        // Don't start a hold timer if we just detected a different gesture very recently
+        // This prevents false palm detections during swipe transitions
+        const timeSinceLastGesture = now - lastDetectedGesture.timestamp
+        const TRANSITION_THRESHOLD = 500 // 500ms
+
+        if (lastDetectedGesture.name &&
+            lastDetectedGesture.name !== gestureName &&
+            timeSinceLastGesture < TRANSITION_THRESHOLD) {
+          console.log(`⏸️  Ignoring ${gestureName} - too soon after ${lastDetectedGesture.name} (${timeSinceLastGesture}ms)`)
+          return
+        }
+
+        // First detection - start timer
+        gestureHoldStart.set(gestureName, now)
+        console.log(`⏱️  AI Mode: ${gestureName} hold started`)
+        return
+      }
+
+      const holdDuration = now - gestureHoldStart.get(gestureName)
+
+      // Check if hold duration is unreasonably long (> 3 seconds)
+      // This means gesture was abandoned without a proper release - start fresh
+      if (holdDuration > 3000) {
+        console.log(`⚠️  Stale timer detected for ${gestureName} (${holdDuration}ms) - resetting`)
+        gestureHoldStart.delete(gestureName) // Delete instead of reset
+        gestureHoldStart.set(gestureName, now) // Start fresh
+        return
+      }
+
+      if (holdDuration < HOLD_TIME) {
+        // Still holding, but not long enough
+        console.log(`⏱️  AI Mode: ${gestureName} holding... ${holdDuration}ms / ${HOLD_TIME}ms`)
+        return
+      }
+
+      // Hold time met! Continue to execute action below
+      console.log(`✅ AI Mode: ${gestureName} hold time met (${holdDuration}ms)`)
+
+      // Reset the timer so it doesn't trigger again until released and re-held
+      gestureHoldStart.set(gestureName, now)
+    }
+
     // Handle continuous_motion with direct cursor control (bypass AI agent for performance)
     if (data.gesture === 'continuous_motion' && data.position) {
       const currentHandPos = { x: data.position.x, y: data.position.y }
@@ -789,10 +871,14 @@ io.on('connection', (socket) => {
       return // Don't send to AI agent
     }
 
+    // Update last detected gesture for transition filtering
+    lastDetectedGesture = { name: data.gesture, timestamp: Date.now() }
+
     // For all other gestures, query AI Workflow Agent
     try {
       // Use same consistent user_id as activation
       const userId = 'ai-mode-user'
+      const requestTimestamp = Date.now()
       console.log(`📤 Sending gesture with user_id: ${userId}, session_id: ${aiModeSessionId}`)
 
       const response = await fetch(`${AI_WORKFLOW_AGENT_URL}/gesture`, {
@@ -811,11 +897,52 @@ io.on('connection', (socket) => {
         const aiDecision = await response.json()
         console.log('🧠 AI Workflow Decision:', aiDecision)
 
+        // Check if this response is for a stale hold session
+        // If the gesture has a hold time and was restarted after this request was sent, ignore it
+        const HOLD_TIMES_CHECK = {
+          'palm': 1500,
+          'thumbs_up': 500,
+          'thumbs_down': 500,
+          'peace': 500,
+          'point': 500
+        }
+        if (HOLD_TIMES_CHECK[data.gesture] && gestureHoldStart.has(data.gesture)) {
+          const currentHoldStartTime = gestureHoldStart.get(data.gesture)
+          if (requestTimestamp < currentHoldStartTime) {
+            console.log(`🚫 Ignoring ${data.gesture} response - stale request from previous hold session`)
+            return
+          }
+        }
+
+        // Don't execute if a different gesture is currently being held
+        // OR if this gesture has been released (prevents stale async responses)
+        const currentlyHeldGestures = Array.from(gestureHoldStart.keys())
+
+        // Block if currently holding a DIFFERENT gesture
+        if (currentlyHeldGestures.length > 0 && !currentlyHeldGestures.includes(data.gesture)) {
+          console.log(`🚫 Ignoring ${data.gesture} response - currently holding: ${currentlyHeldGestures.join(', ')}`)
+          return
+        }
+
+        // Block if this gesture required a hold time but is no longer being held
+        // (gestureHoldStart would have been deleted on release)
+        const HOLD_TIMES = {
+          'palm': 1500,
+          'thumbs_up': 500,
+          'thumbs_down': 500,
+          'peace': 500,
+          'point': 500
+        }
+        if (HOLD_TIMES[data.gesture] && !gestureHoldStart.has(data.gesture)) {
+          console.log(`🚫 Ignoring ${data.gesture} response - gesture was released`)
+          return
+        }
+
         // Check cooldown
         const cooldownKey = `ai_${data.gesture}_${aiDecision.parameters?.key || aiDecision.parameters?.action}`
         const now = Date.now()
         const lastExecution = gestureLastExecuted.get(cooldownKey) || 0
-        const AI_MODE_COOLDOWN = 2000 // 2 seconds
+        const AI_MODE_COOLDOWN = 3000 // 3 seconds
 
         if (now - lastExecution < AI_MODE_COOLDOWN) {
           console.log(`⏳ AI Mode cooldown active for ${data.gesture}`)
@@ -835,6 +962,7 @@ io.on('connection', (socket) => {
             'ArrowDown': Key.Down,
             'Space': Key.Space,
             'Escape': Key.Escape,
+            'Esc': Key.Escape,  // Alternative for Escape
             'Enter': Key.Enter,
             'f': Key.F,
             'j': Key.J,
@@ -842,12 +970,15 @@ io.on('connection', (socket) => {
           }
 
           const key = keyMap[keyName]
+          console.log(`🔍 Keyboard Debug: keyName="${keyName}", type=${typeof keyName}, hasKey=${keyName in keyMap}, keyValue=${key}`)
 
-          if (key) {
+          if (keyName in keyMap) {
+            // Key exists in map (check by keyName, not by value, since Key.Escape is 0 which is falsy)
             await keyboard.pressKey(key)
             await keyboard.releaseKey(key)
             console.log(`✅ AI keyboard action: ${keyName}`)
           } else {
+            console.log(`⚠️  WARNING: Key "${keyName}" not in keyMap, typing as string. Available keys: ${Object.keys(keyMap).join(', ')}`)
             await keyboard.type(keyName)
             console.log(`✅ AI keyboard action (char): ${keyName}`)
           }
