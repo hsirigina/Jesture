@@ -25,7 +25,7 @@ echo ""
 echo "============================================================"
 echo "📡 Starting MCP Gesture Hub (Port 8002)"
 echo "============================================================"
-python3 mcp_gesture_hub.py > /tmp/mcp_hub.log 2>&1 &
+/usr/bin/python3 mcp_gesture_hub.py > /tmp/mcp_hub.log 2>&1 &
 MCP_PID=$!
 echo "   PID: $MCP_PID"
 echo "   Logs: tail -f /tmp/mcp_hub.log"
@@ -38,7 +38,7 @@ echo ""
 echo "============================================================"
 echo "🧠 Starting AI Workflow Agent (Port 8003)"
 echo "============================================================"
-python3 ai_mode_workflow_agent.py > /tmp/workflow_agent.log 2>&1 &
+/usr/bin/python3 ai_mode_workflow_agent.py > /tmp/workflow_agent.log 2>&1 &
 WORKFLOW_PID=$!
 echo "   PID: $WORKFLOW_PID"
 echo "   Logs: tail -f /tmp/workflow_agent.log"
