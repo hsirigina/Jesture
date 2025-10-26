@@ -3,6 +3,7 @@ import './ControlBar.css'
 
 const ControlBar = ({ onStop, onOpenApp }) => {
   const [elapsedTime, setElapsedTime] = useState(0)
+  const [isExpanded, setIsExpanded] = useState(false)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -41,8 +42,23 @@ const ControlBar = ({ onStop, onOpenApp }) => {
     }
   }
 
+  const toggleExpanded = () => {
+    setIsExpanded(!isExpanded)
+  }
+
+  if (!isExpanded) {
+    return (
+      <div className="gesture-control-bar minimized" onClick={toggleExpanded}>
+        <div className="minimized-content">
+          <div className="status-dot pulsing"></div>
+          <span className="minimized-text">Click to open control bar</span>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="gesture-control-bar">
+    <div className="gesture-control-bar expanded">
       <button className="toolbar-btn" onClick={handleOpenApp}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
           <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/>
@@ -62,6 +78,12 @@ const ControlBar = ({ onStop, onOpenApp }) => {
 
       <button className="toolbar-btn-red" onClick={handleStop}>
         Stop Workflow
+      </button>
+
+      <button className="toolbar-btn icon-only" onClick={toggleExpanded}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M7 14l5-5 5 5H7z"/>
+        </svg>
       </button>
     </div>
   )

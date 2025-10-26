@@ -97,18 +97,18 @@ function createRecordingIndicator() {
   const { width } = primaryDisplay.workAreaSize
 
   recordingIndicatorWindow = new BrowserWindow({
-    width: 450,
+    width: 500,
     height: 48,
-    x: Math.floor(width / 2 - 225), // Center at top of screen
+    x: Math.floor(width / 2 - 250), // Center at top of screen
     y: 0,
-    transparent: false,
+    transparent: true,
     frame: false,
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     visibleOnAllWorkspaces: true,
     fullscreenable: false,
-    hasShadow: true,
+    hasShadow: false,
     show: false, // Don't show until ready
     webPreferences: {
       nodeIntegration: false,
