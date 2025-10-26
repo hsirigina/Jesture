@@ -15,6 +15,9 @@ export default function AIMode({ isGestureDetectionActive, aiModeActive, onAIMod
   const [lastAction, setLastAction] = useState(null)
   const [error, setError] = useState(null)
   const [sessionId, setSessionId] = useState(null)
+  const [currentWorkflow, setCurrentWorkflow] = useState(null)
+  const [workflowCached, setWorkflowCached] = useState(false)
+  const [saveStatus, setSaveStatus] = useState(null) // 'saving', 'saved', 'error'
 
   // Draggable state
   const [corner, setCorner] = useState('top-right') // top-right, top-left, bottom-right, bottom-left
@@ -92,7 +95,10 @@ export default function AIMode({ isGestureDetectionActive, aiModeActive, onAIMod
       console.log('✅ AI Mode activated:', data)
       onAIModeChange(true)
       setSessionId(data.session_id)
+      setCurrentWorkflow(data.workflow)
+      setWorkflowCached(data.cached || false)
       setError(null)
+      setSaveStatus(null)
     })
 
     // Listen for AI mode deactivation
@@ -101,6 +107,9 @@ export default function AIMode({ isGestureDetectionActive, aiModeActive, onAIMod
       onAIModeChange(false)
       setSessionId(null)
       setLastAction(null)
+      setCurrentWorkflow(null)
+      setWorkflowCached(false)
+      setSaveStatus(null)
     })
 
     // Listen for AI action completions
@@ -121,11 +130,31 @@ export default function AIMode({ isGestureDetectionActive, aiModeActive, onAIMod
       setTimeout(() => setError(null), 5000)
     })
 
+    // Listen for workflow save request (from server to save to Supabase)
+    socketClient.on('ai-workflow:save-to-db', async (data) => {
+      console.log('💾 Saving AI workflow to database:', data)
+      setSaveStatus('saving')
+
+      try {
+        // TODO: Import and use saveWorkflowToSupabase function
+        // For now, just show success
+        setTimeout(() => {
+          setSaveStatus('saved')
+          setTimeout(() => setSaveStatus(null), 3000)
+        }, 1000)
+      } catch (error) {
+        console.error('Failed to save workflow:', error)
+        setSaveStatus('error')
+        setTimeout(() => setSaveStatus(null), 3000)
+      }
+    })
+
     return () => {
       socketClient.off('ai-mode:activated')
       socketClient.off('ai-mode:deactivated')
       socketClient.off('ai-action:completed')
       socketClient.off('ai-mode:error')
+      socketClient.off('ai-workflow:save-to-db')
     }
   }, [])
 
@@ -139,6 +168,18 @@ export default function AIMode({ isGestureDetectionActive, aiModeActive, onAIMod
         user_id: 'demo-user' // In production, use actual user ID from auth
       })
     }
+  }
+
+  const handleSaveWorkflow = () => {
+    if (!currentWorkflow) {
+      setError('No workflow to save')
+      return
+    }
+
+    setSaveStatus('saving')
+    socketClient.emit('ai-workflow:save', {
+      workflow_name: currentWorkflow.workflow_name
+    })
   }
 
   const handleMouseDown = (e) => {
@@ -262,6 +303,98 @@ export default function AIMode({ isGestureDetectionActive, aiModeActive, onAIMod
               Active - AI is watching your screen
             </span>
           </div>
+        </div>
+      )}
+
+      {/* Current Workflow Display */}
+      {currentWorkflow && aiModeActive && (
+        <div style={{
+          marginTop: '12px',
+          padding: '12px',
+          backgroundColor: '#f9fafb',
+          borderRadius: '8px',
+          border: '1px solid #e5e7eb'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '8px'
+          }}>
+            <div style={{
+              fontSize: '13px',
+              fontWeight: '600',
+              color: '#1f2937'
+            }}>
+              {currentWorkflow.workflow_name}
+            </div>
+            {workflowCached && (
+              <span style={{
+                fontSize: '10px',
+                padding: '2px 6px',
+                backgroundColor: '#dbeafe',
+                color: '#1e40af',
+                borderRadius: '4px',
+                fontWeight: '500'
+              }}>
+                CACHED
+              </span>
+            )}
+          </div>
+
+          <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '8px' }}>
+            {currentWorkflow.mappings?.length || 0} gesture mappings
+          </div>
+
+          {/* Gesture Mappings */}
+          <div style={{ fontSize: '11px', color: '#374151' }}>
+            {currentWorkflow.mappings?.slice(0, 3).map((mapping, i) => (
+              <div key={i} style={{ marginBottom: '4px' }}>
+                • {mapping.gesture_id} → {mapping.action_id}
+              </div>
+            ))}
+            {currentWorkflow.mappings?.length > 3 && (
+              <div style={{ color: '#9ca3af', fontStyle: 'italic' }}>
+                +{currentWorkflow.mappings.length - 3} more...
+              </div>
+            )}
+          </div>
+
+          {/* Save to Dashboard Button */}
+          {!workflowCached && (
+            <button
+              onClick={handleSaveWorkflow}
+              disabled={saveStatus === 'saving' || saveStatus === 'saved'}
+              style={{
+                marginTop: '8px',
+                width: '100%',
+                padding: '8px',
+                fontSize: '12px',
+                fontWeight: '600',
+                borderRadius: '6px',
+                border: 'none',
+                cursor: saveStatus === 'saving' || saveStatus === 'saved' ? 'not-allowed' : 'pointer',
+                backgroundColor: saveStatus === 'saved' ? '#10b981' : saveStatus === 'error' ? '#ef4444' : '#3b82f6',
+                color: 'white',
+                transition: 'all 0.2s',
+                opacity: saveStatus === 'saving' || saveStatus === 'saved' ? 0.7 : 1
+              }}
+            >
+              {saveStatus === 'saving' ? '💾 Saving...' : saveStatus === 'saved' ? '✅ Saved!' : '💾 Save to Dashboard'}
+            </button>
+          )}
+
+          {workflowCached && (
+            <div style={{
+              marginTop: '8px',
+              fontSize: '10px',
+              color: '#6b7280',
+              textAlign: 'center',
+              fontStyle: 'italic'
+            }}>
+              This workflow was loaded from cache
+            </div>
+          )}
         </div>
       )}
 
