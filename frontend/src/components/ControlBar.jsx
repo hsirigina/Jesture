@@ -1,11 +1,33 @@
+import { useState, useEffect } from 'react'
 import './ControlBar.css'
 
 const ControlBar = ({ onStop, onOpenApp }) => {
+  const [elapsedTime, setElapsedTime] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsedTime(prev => prev + 1)
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+
   const handleStop = () => {
+    console.log('🔴 Stop button clicked in ControlBar')
     if (onStop) {
+      console.log('📞 Calling onStop callback')
       onStop()
+    } else {
+      console.log('⚠️ No onStop callback provided')
     }
     if (window.electronAPI) {
+      console.log('📡 Sending workflowStopped to Electron')
       window.electronAPI.workflowStopped()
     }
   }
@@ -21,13 +43,6 @@ const ControlBar = ({ onStop, onOpenApp }) => {
 
   return (
     <div className="gesture-control-bar">
-      <button className="toolbar-btn">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M23.5 17l-5 5-3.5-3.5 1.5-1.5 2 2 3.5-3.5 1.5 1.5zM12 3c-4.97 0-9 4.03-9 9H0l4 4 4-4H5c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C7.27 19.99 9.51 21 12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9z"/>
-        </svg>
-        <span>Gestures</span>
-      </button>
-
       <button className="toolbar-btn" onClick={handleOpenApp}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
           <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/>
@@ -40,19 +55,13 @@ const ControlBar = ({ onStop, onOpenApp }) => {
       <div className="status-indicator">
         <div className="status-dot pulsing"></div>
         <span className="status-label">Recording Active</span>
-        <span className="status-time">00:00</span>
+        <span className="status-time">{formatTime(elapsedTime)}</span>
       </div>
 
       <div className="toolbar-separator"></div>
 
       <button className="toolbar-btn-red" onClick={handleStop}>
         Stop Workflow
-      </button>
-
-      <button className="toolbar-btn icon-only">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
-        </svg>
       </button>
     </div>
   )

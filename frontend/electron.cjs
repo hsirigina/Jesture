@@ -97,9 +97,9 @@ function createRecordingIndicator() {
   const { width } = primaryDisplay.workAreaSize
 
   recordingIndicatorWindow = new BrowserWindow({
-    width: 600,
+    width: 450,
     height: 48,
-    x: Math.floor(width / 2 - 300), // Center at top of screen
+    x: Math.floor(width / 2 - 225), // Center at top of screen
     y: 0,
     transparent: false,
     frame: false,
@@ -254,6 +254,14 @@ ipcMain.on('workflow:started', () => {
 
 // Workflow stopped - restore main window
 ipcMain.on('workflow:stopped', () => {
+  console.log('🛑 Electron: workflow:stopped IPC received')
+
+  // Notify main window to update workflow status
+  if (mainWindow && mainWindow.webContents) {
+    console.log('📡 Notifying main window of workflow stop')
+    mainWindow.webContents.send('workflow-stopped')
+  }
+
   // Hide recording indicator
   if (recordingIndicatorWindow) {
     recordingIndicatorWindow.hide()

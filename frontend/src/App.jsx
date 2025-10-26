@@ -22,6 +22,7 @@ function AppContent() {
   const [controlMode, setControlMode] = useState('presentation') // 'presentation' or 'light'
   const [cameraActive, setCameraActive] = useState(false) // Only run camera when workflow is active
   const [aiModeActive, setAiModeActive] = useState(false) // AI Mode state
+  const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0) // Force dashboard refresh
 
   console.log('🎬 AppContent render - viewMode:', viewMode, 'isMiniWindow:', isMiniWindow)
 
@@ -41,6 +42,7 @@ function AppContent() {
 
     // Listen for view mode changes from Electron
     let cleanupViewMode
+    let cleanupWorkflowStopped
     if (window.electronAPI) {
       console.log('🔧 Setting up onSetViewMode listener')
       console.log('🔧 electronAPI available:', !!window.electronAPI)
@@ -58,6 +60,17 @@ function AppContent() {
           setIsMiniWindow(false)
         }
       })
+
+      // Listen for workflow stopped event from Electron
+      if (window.electronAPI.onWorkflowStopped) {
+        cleanupWorkflowStopped = window.electronAPI.onWorkflowStopped(() => {
+          console.log('🛑 Main window received workflow-stopped event - refreshing dashboard')
+          // Turn off camera
+          setCameraActive(false)
+          // Increment refresh key to force WorkflowDashboard to reload
+          setDashboardRefreshKey(prev => prev + 1)
+        })
+      }
     } else {
       console.log('❌ window.electronAPI not available')
     }
@@ -68,6 +81,7 @@ function AppContent() {
       unsubscribeAction()
       socketClient.disconnect()
       if (cleanupViewMode) cleanupViewMode()
+      if (cleanupWorkflowStopped) cleanupWorkflowStopped()
     }
   }, [])
 
@@ -139,18 +153,22 @@ function AppContent() {
   }
 
   const handleWorkflowStop = async () => {
+    console.log('🛑 handleWorkflowStop called - stopping workflow')
+
     // Turn off camera
     setCameraActive(false)
 
     // Deactivate workflow in database
     try {
       const activeWorkflow = await workflowService.getActiveWorkflow()
+      console.log('🔍 Active workflow:', activeWorkflow)
       if (activeWorkflow) {
         await workflowService.deactivateWorkflow(activeWorkflow.id)
         await socketClient.unloadWorkflow()
+        console.log('✅ Workflow stopped and unloaded')
       }
     } catch (err) {
-      console.error('Failed to stop workflow:', err)
+      console.error('❌ Failed to stop workflow:', err)
     }
   }
 
@@ -206,6 +224,7 @@ function AppContent() {
           </div>
         )}
         <WorkflowDashboard
+          key={dashboardRefreshKey}
           onCreateWorkflow={() => {
             setCurrentWorkflowId(null)
             setCurrentView('canvas')

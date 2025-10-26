@@ -14,6 +14,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Return cleanup function
     return () => ipcRenderer.removeListener('set-view-mode', listener)
   },
+  onWorkflowStopped: (callback) => {
+    const listener = () => {
+      console.log('🎧 Preload listener received workflow-stopped')
+      callback()
+    }
+    ipcRenderer.on('workflow-stopped', listener)
+    return () => ipcRenderer.removeListener('workflow-stopped', listener)
+  },
   workflowStarted: () => ipcRenderer.send('workflow:started'),
   workflowStopped: () => ipcRenderer.send('workflow:stopped'),
   indicatorClicked: () => ipcRenderer.send('indicator:clicked')
