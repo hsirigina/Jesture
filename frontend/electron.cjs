@@ -3,6 +3,7 @@ const path = require('path')
 
 let mainWindow
 let miniWindow
+let recordingIndicatorWindow
 let tray
 let isQuitting = false
 let currentMode = 'full'
@@ -23,7 +24,8 @@ function createMainWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.cjs'),
-      webSecurity: true
+      webSecurity: true,
+      backgroundThrottling: false // Keep running even when hidden
     }
   })
 
@@ -86,6 +88,71 @@ function createMiniWindow() {
 
   miniWindow.on('closed', () => {
     miniWindow = null
+  })
+}
+
+function createRecordingIndicator() {
+  const { screen } = require('electron')
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width } = primaryDisplay.workAreaSize
+
+  recordingIndicatorWindow = new BrowserWindow({
+    width: 600,
+    height: 48,
+    x: Math.floor(width / 2 - 300), // Center at top of screen
+    y: 0,
+    transparent: false,
+    frame: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    visibleOnAllWorkspaces: true,
+    fullscreenable: false,
+    hasShadow: true,
+    show: false, // Don't show until ready
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs'),
+      webSecurity: true
+    }
+  })
+
+  // Set to highest level possible
+  recordingIndicatorWindow.setAlwaysOnTop(true, 'screen-saver', 1)
+  recordingIndicatorWindow.setVisibleOnAllWorkspaces(true)
+
+  const startUrl = process.env.ELECTRON_START_URL || `file://${path.join(__dirname, 'dist/index.html')}`
+  recordingIndicatorWindow.loadURL(startUrl)
+
+  // Open dev tools for debugging
+  if (process.env.ELECTRON_START_URL) {
+    recordingIndicatorWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+
+  recordingIndicatorWindow.webContents.once('did-finish-load', () => {
+    console.log('📡 Recording indicator window loaded, waiting for React to initialize...')
+    // Wait a bit for React to set up listeners, then send message and show window
+    setTimeout(() => {
+      console.log('📡 Sending recording-indicator view mode to window')
+      recordingIndicatorWindow.webContents.send('set-view-mode', 'recording-indicator')
+      // Show window after another brief delay to ensure React has rendered
+      setTimeout(() => {
+        console.log('👁️ Showing recording indicator window')
+        recordingIndicatorWindow.show()
+      }, 100)
+    }, 500)
+  })
+
+  recordingIndicatorWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault()
+      recordingIndicatorWindow.hide()
+    }
+  })
+
+  recordingIndicatorWindow.on('closed', () => {
+    recordingIndicatorWindow = null
   })
 }
 
@@ -164,6 +231,49 @@ ipcMain.on('set-view-mode', (event, mode) => {
     mainWindow.show()
     currentMode = 'full'
   }
+})
+
+// Workflow started - show recording indicator
+ipcMain.on('workflow:started', () => {
+  console.log('🚀 workflow:started IPC received')
+  if (!recordingIndicatorWindow) {
+    console.log('📺 Creating recording indicator window')
+    createRecordingIndicator()
+  } else {
+    // Window already exists, just show it
+    recordingIndicatorWindow.show()
+  }
+
+  // Hide main window
+  if (mainWindow) mainWindow.hide()
+  if (miniWindow) miniWindow.hide()
+
+  console.log('✅ Recording indicator setup complete')
+  currentMode = 'recording'
+})
+
+// Workflow stopped - restore main window
+ipcMain.on('workflow:stopped', () => {
+  // Hide recording indicator
+  if (recordingIndicatorWindow) {
+    recordingIndicatorWindow.hide()
+  }
+
+  // Show main window
+  if (!mainWindow) createMainWindow()
+  mainWindow.show()
+  currentMode = 'full'
+})
+
+// Indicator clicked - expand to full app
+ipcMain.on('indicator:clicked', () => {
+  if (!mainWindow) createMainWindow()
+
+  // Show main window
+  mainWindow.show()
+
+  // Keep indicator visible (don't hide it)
+  currentMode = 'full'
 })
 
 app.on('ready', () => {

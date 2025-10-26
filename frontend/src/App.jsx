@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import CameraFeed from './components/CameraFeed'
 import MiniPanel from './components/MiniPanel'
+import ControlBar from './components/ControlBar'
 import Auth from './components/Auth'
 import WorkflowDashboard from './components/WorkflowDashboard'
 import WorkflowCanvas from './components/WorkflowCanvas'
@@ -16,11 +17,13 @@ function AppContent() {
   const [currentWorkflowId, setCurrentWorkflowId] = useState(null)
   const [lastGesture, setLastGesture] = useState(null)
   const [connected, setConnected] = useState(false)
-  const [viewMode, setViewMode] = useState('full') // 'mini' or 'full'
+  const [viewMode, setViewMode] = useState('full') // 'mini', 'full', or 'recording-indicator'
   const [isMiniWindow, setIsMiniWindow] = useState(false)
   const [controlMode, setControlMode] = useState('presentation') // 'presentation' or 'light'
   const [cameraActive, setCameraActive] = useState(false) // Only run camera when workflow is active
   const [aiModeActive, setAiModeActive] = useState(false) // AI Mode state
+
+  console.log('🎬 AppContent render - viewMode:', viewMode, 'isMiniWindow:', isMiniWindow)
 
   useEffect(() => {
     // Connect to Socket.IO server
@@ -37,15 +40,26 @@ function AppContent() {
     })
 
     // Listen for view mode changes from Electron
+    let cleanupViewMode
     if (window.electronAPI) {
-      window.electronAPI.onSetViewMode((mode) => {
+      console.log('🔧 Setting up onSetViewMode listener')
+      console.log('🔧 electronAPI available:', !!window.electronAPI)
+      console.log('🔧 onSetViewMode available:', !!window.electronAPI.onSetViewMode)
+
+      cleanupViewMode = window.electronAPI.onSetViewMode((mode) => {
+        console.log('📡 Received view mode from Electron:', mode)
         setViewMode(mode)
         if (mode === 'mini') {
           setIsMiniWindow(true)
+        } else if (mode === 'recording-indicator') {
+          setViewMode('recording-indicator')
+          console.log('🎯 Set viewMode to recording-indicator')
         } else {
           setIsMiniWindow(false)
         }
       })
+    } else {
+      console.log('❌ window.electronAPI not available')
     }
 
     // Cleanup on unmount
@@ -53,6 +67,7 @@ function AppContent() {
       unsubscribeStatus()
       unsubscribeAction()
       socketClient.disconnect()
+      if (cleanupViewMode) cleanupViewMode()
     }
   }, [])
 
@@ -93,20 +108,20 @@ function AppContent() {
 
   // MERGED: Keep useCallback from friend's code, add AI Mode routing from your code
   const handleGestureDetected = useCallback((gestureName, confidence, position = null) => {
+    console.log('👋 Gesture detected:', gestureName, 'confidence:', confidence)
     setLastGesture({ name: gestureName, confidence, time: Date.now() })
 
     // Route gesture based on active mode
     if (aiModeActive) {
       // Send to AI agent for context-aware interpretation
       console.log('🤖 Routing gesture to AI agent:', gestureName)
-      console.log('📡 Socket connected?', socketClient.socket?.connected)
       socketClient.emit('ai-gesture:detected', {
         gesture: gestureName,
         confidence: confidence
       })
-      console.log('📤 Emitted ai-gesture:detected event')
     } else {
       // Send gesture to server via Socket.IO with position data (normal workflow mode)
+      console.log('📤 Sending gesture to server:', gestureName)
       socketClient.sendGesture(gestureName, confidence, position)
     }
   }, [aiModeActive]) // Add aiModeActive to dependency array
@@ -117,6 +132,22 @@ function AppContent() {
     console.log('Switched to', newMode, 'mode')
   }
 
+  const handleWorkflowStop = async () => {
+    // Turn off camera
+    setCameraActive(false)
+
+    // Deactivate workflow in database
+    try {
+      const activeWorkflow = await workflowService.getActiveWorkflow()
+      if (activeWorkflow) {
+        await workflowService.deactivateWorkflow(activeWorkflow.id)
+        await socketClient.unloadWorkflow()
+      }
+    } catch (err) {
+      console.error('Failed to stop workflow:', err)
+    }
+  }
+
   // Show loading state
   if (loading) {
     return <div className="app" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>
@@ -125,6 +156,37 @@ function AppContent() {
   // Show auth if not logged in
   if (!user) {
     return <Auth />
+  }
+
+  // Recording indicator mode - ONLY show control bar (check BEFORE other views)
+  if (viewMode === 'recording-indicator') {
+    console.log('✅ RENDERING CONTROL BAR ONLY - viewMode:', viewMode)
+    return <ControlBar onStop={handleWorkflowStop} />
+  }
+
+  // Mini panel mode - ONLY show this if we're actually in the mini window
+  if (isMiniWindow || viewMode === 'mini') {
+    return (
+      <>
+        {/* Keep camera running in background */}
+        <div style={{ display: 'none' }}>
+          <CameraFeed onGestureDetected={handleGestureDetected} />
+        </div>
+        <MiniPanel
+          onShowFull={() => {
+            setViewMode('full')
+            if (window.electronAPI) {
+              window.electronAPI.setViewMode('full')
+            }
+          }}
+          onClose={() => {
+            if (window.electronAPI) {
+              window.electronAPI.hideWindow()
+            }
+          }}
+        />
+      </>
+    )
   }
 
   // Show workflow dashboard
@@ -166,31 +228,6 @@ function AppContent() {
         workflowId={currentWorkflowId}
         onBack={() => setCurrentView('dashboard')}
       />
-    )
-  }
-
-  // Mini panel mode - ONLY show this if we're actually in the mini window
-  if (isMiniWindow || viewMode === 'mini') {
-    return (
-      <>
-        {/* Keep camera running in background */}
-        <div style={{ display: 'none' }}>
-          <CameraFeed onGestureDetected={handleGestureDetected} />
-        </div>
-        <MiniPanel
-          onShowFull={() => {
-            setViewMode('full')
-            if (window.electronAPI) {
-              window.electronAPI.setViewMode('full')
-            }
-          }}
-          onClose={() => {
-            if (window.electronAPI) {
-              window.electronAPI.hideWindow()
-            }
-          }}
-        />
-      </>
     )
   }
 

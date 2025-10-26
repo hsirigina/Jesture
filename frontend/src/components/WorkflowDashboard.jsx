@@ -39,6 +39,11 @@ const WorkflowDashboard = ({ onEditWorkflow, onCreateWorkflow, onWorkflowActivat
         onWorkflowActivated()
       }
 
+      // Notify Electron to show recording indicator
+      if (window.electronAPI) {
+        window.electronAPI.workflowStarted()
+      }
+
       console.log('✅ Workflow loaded on server:', workflow.name)
       await loadWorkflows()
     } catch (err) {
@@ -57,6 +62,11 @@ const WorkflowDashboard = ({ onEditWorkflow, onCreateWorkflow, onWorkflowActivat
       // Turn off camera
       if (onWorkflowDeactivated) {
         onWorkflowDeactivated()
+      }
+
+      // Notify Electron to restore main window
+      if (window.electronAPI) {
+        window.electronAPI.workflowStopped()
       }
 
       console.log('✅ Workflow unloaded from server')

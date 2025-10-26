@@ -6,6 +6,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   hideWindow: () => ipcRenderer.send('hide-window'),
   setViewMode: (mode) => ipcRenderer.send('set-view-mode', mode),
   onSetViewMode: (callback) => {
-    ipcRenderer.on('set-view-mode', (event, mode) => callback(mode))
-  }
+    const listener = (event, mode) => {
+      console.log('🎧 Preload listener received set-view-mode:', mode)
+      callback(mode)
+    }
+    ipcRenderer.on('set-view-mode', listener)
+    // Return cleanup function
+    return () => ipcRenderer.removeListener('set-view-mode', listener)
+  },
+  workflowStarted: () => ipcRenderer.send('workflow:started'),
+  workflowStopped: () => ipcRenderer.send('workflow:stopped'),
+  indicatorClicked: () => ipcRenderer.send('indicator:clicked')
 })
