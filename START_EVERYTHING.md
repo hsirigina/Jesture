@@ -40,11 +40,25 @@ cd ../server && npm install
 
 ---
 
+## ⚠️ IMPORTANT: All Critical Bugs Are Already Fixed!
+
+The following bugs were fixed in the codebase. Your friend **does NOT need to fix anything** - just follow the setup steps above:
+
+✅ **Claude API Model**: Updated to `claude-sonnet-4-5` (the old model was deprecated)
+✅ **User ID Mismatch**: Fixed to use consistent `'ai-mode-user'` ID for all requests
+✅ **Session ID**: Now included in all gesture requests
+✅ **Port Cleanup**: `start_agents.sh` now kills all ports (8000-8003) before starting
+✅ **Environment Variables**: `.env.example` updated with correct format
+
+**Your friend can just run the commands and it will work!**
+
+---
+
 ## Full Startup Process (4 terminals needed)
 
 ### Terminal 1: Start AI Agents
 ```bash
-cd /Users/vanishaswabhanam/Documents/GitHub/Jesture/agents
+cd agents
 ./start_agents.sh
 ```
 **What this does**:
@@ -58,7 +72,7 @@ cd /Users/vanishaswabhanam/Documents/GitHub/Jesture/agents
 
 ### Terminal 2: Start Backend Server
 ```bash
-cd /Users/vanishaswabhanam/Documents/GitHub/Jesture/server
+cd server
 npm start
 ```
 **What this does**:
@@ -73,7 +87,7 @@ npm start
 
 ### Terminal 3: Start Frontend (Electron)
 ```bash
-cd /Users/vanishaswabhanam/Documents/GitHub/Jesture/frontend
+cd frontend
 npm run electron:dev
 ```
 **What this does**:
@@ -303,15 +317,15 @@ chmod +x start_all.sh
 
 **Just starting fresh?**
 ```bash
-cd /Users/vanishaswabhanam/Documents/GitHub/Jesture
+# From the Jesture project root directory:
 
 # Terminal 1
 cd agents && ./start_agents.sh
 
-# Terminal 2
+# Terminal 2 (open new terminal in project root)
 cd server && npm start
 
-# Terminal 3
+# Terminal 3 (open new terminal in project root)
 cd frontend && npm run electron:dev
 ```
 
