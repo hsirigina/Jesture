@@ -20,7 +20,6 @@ const GESTURE_INPUTS = [
   { id: 'thumbs_up', label: 'Thumbs Up', gesture: 'thumbs_up', type: 'discrete' },
   { id: 'thumbs_down', label: 'Thumbs Down', gesture: 'thumbs_down', type: 'discrete' },
   { id: 'palm', label: 'Palm', gesture: 'palm', type: 'discrete' },
-  { id: 'point', label: 'Point', gesture: 'point', type: 'discrete' },
   { id: 'peace', label: 'Peace', gesture: 'peace', type: 'discrete' },
   { id: 'continuous_motion', label: 'Continuous Motion (Point)', gesture: 'continuous_motion', type: 'continuous' },
 ]
@@ -75,11 +74,18 @@ const ACTION_TYPE_OPTIONS = {
 // Middleware/modifier nodes (go between input and output)
 const MIDDLEWARE_NODES = [
   {
+    id: 'holdTime',
+    label: 'Hold Time',
+    category: 'modifier',
+    config: { holdTime: 2000 }, // 2 seconds default
+    description: 'How long gesture must be held before triggering'
+  },
+  {
     id: 'cooldown',
     label: 'Cooldown',
     category: 'modifier',
     config: { cooldown: 2000 }, // 2 seconds default
-    description: 'Prevent execution for X milliseconds after triggering'
+    description: 'Prevent re-execution for X milliseconds after triggering'
   },
 ]
 
@@ -204,7 +210,7 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
 
       const newNode = {
         id: `node-${nodeIdCounter}`,
-        type: data.nodeType === 'input' ? 'input' : 'default',
+        type: 'default', // Use default type for all nodes (has both input and output handles)
         position,
         data: {
           label: data.nodeData.label,
@@ -213,10 +219,80 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
         },
       }
 
-      setNodes((nds) => nds.concat(newNode))
-      setNodeIdCounter(nodeIdCounter + 1)
+      let newNodes = [newNode]
+      let newEdges = []
+      let currentNodeId = nodeIdCounter + 1
+
+      // Auto-add Hold Time and Cooldown modifiers for input nodes
+      if (data.nodeType === 'input') {
+        // Determine default hold time based on gesture type
+        let defaultHoldTime = 500 // Default 500ms for most static gestures
+        const gesture = data.nodeData.gesture
+
+        if (gesture === 'palm') {
+          defaultHoldTime = 1500 // 1.5s for palm (to avoid triggering during swipes)
+        } else if (gesture === 'continuous_motion') {
+          defaultHoldTime = 0 // Instant for continuous tracking
+        } else if (gesture === 'swipe_left' || gesture === 'swipe_right') {
+          defaultHoldTime = 0 // Instant for swipes
+        }
+
+        // Create Hold Time modifier (placed to the left of input)
+        const holdTimeNode = {
+          id: `node-${currentNodeId}`,
+          type: 'default',
+          position: { x: position.x - 200, y: position.y },
+          data: {
+            label: 'Hold Time',
+            nodeType: 'modifier',
+            category: 'modifier',
+            config: { holdTime: defaultHoldTime },
+          },
+        }
+        currentNodeId++
+
+        // Determine default cooldown based on gesture type
+        let defaultCooldown = 2000 // Default 2s for most gestures
+        if (gesture === 'continuous_motion') {
+          defaultCooldown = 0 // No cooldown for continuous tracking
+        }
+
+        // Create Cooldown modifier (placed to the right of input)
+        const cooldownNode = {
+          id: `node-${currentNodeId}`,
+          type: 'default',
+          position: { x: position.x + 200, y: position.y },
+          data: {
+            label: 'Cooldown',
+            nodeType: 'modifier',
+            category: 'modifier',
+            config: { cooldown: defaultCooldown },
+          },
+        }
+        currentNodeId++
+
+        // Create edges: HoldTime -> Input -> Cooldown
+        const holdTimeEdge = {
+          id: `edge-${holdTimeNode.id}-${newNode.id}`,
+          source: holdTimeNode.id,
+          target: newNode.id,
+        }
+
+        const cooldownEdge = {
+          id: `edge-${newNode.id}-${cooldownNode.id}`,
+          source: newNode.id,
+          target: cooldownNode.id,
+        }
+
+        newNodes = [holdTimeNode, newNode, cooldownNode]
+        newEdges = [holdTimeEdge, cooldownEdge]
+      }
+
+      setNodes((nds) => nds.concat(newNodes))
+      setEdges((eds) => eds.concat(newEdges))
+      setNodeIdCounter(currentNodeId)
     },
-    [nodeIdCounter, setNodes, screenToFlowPosition]
+    [nodeIdCounter, setNodes, setEdges, screenToFlowPosition]
   )
 
   const handleSave = async () => {
@@ -452,7 +528,31 @@ const WorkflowCanvas = ({ workflowId, onBack }) => {
                 </div>
               )}
 
-              {/* Modifier node configuration - editable */}
+              {/* Modifier node configuration - Hold Time */}
+              {selectedNode.data.category === 'modifier' && selectedNode.data.config?.holdTime !== undefined && (
+                <div className="config-section">
+                  <label>Hold Time (milliseconds)</label>
+                  <input
+                    type="number"
+                    value={selectedNode.data.config.holdTime}
+                    onChange={(e) => handleUpdateNodeConfig('holdTime', parseInt(e.target.value))}
+                    min="0"
+                    step="100"
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      border: '2px solid #e0e0e0',
+                      borderRadius: '4px',
+                      fontSize: '1rem'
+                    }}
+                  />
+                  <p style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.5rem' }}>
+                    {(selectedNode.data.config.holdTime / 1000).toFixed(1)} seconds
+                  </p>
+                </div>
+              )}
+
+              {/* Modifier node configuration - Cooldown */}
               {selectedNode.data.category === 'modifier' && selectedNode.data.config?.cooldown !== undefined && (
                 <div className="config-section">
                   <label>Cooldown (milliseconds)</label>
