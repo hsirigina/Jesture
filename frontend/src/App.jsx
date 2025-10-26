@@ -97,6 +97,12 @@ function AppContent() {
 
     // Route gesture based on active mode
     if (aiModeActive) {
+      // Filter out release events in AI Mode - they shouldn't trigger actions
+      if (gestureName === 'palm_release' || gestureName === 'continuous_motion_release') {
+        console.log('🚫 Ignoring release event in AI Mode:', gestureName)
+        return
+      }
+
       // Send to AI agent for context-aware interpretation
       console.log('🤖 Routing gesture to AI agent:', gestureName)
       console.log('📡 Socket connected?', socketClient.socket?.connected)
