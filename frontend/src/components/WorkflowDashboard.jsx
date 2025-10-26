@@ -4,14 +4,55 @@ import { useAuth } from '../contexts/AuthContext'
 import socketClient from '../services/socketClient'
 import './WorkflowDashboard.css'
 
-const WorkflowDashboard = ({ onEditWorkflow, onCreateWorkflow, onWorkflowActivated, onWorkflowDeactivated }) => {
+const WorkflowDashboard = ({ onEditWorkflow, onCreateWorkflow, onWorkflowActivated, onWorkflowDeactivated, aiModeActive, onAIModeChange }) => {
   const { user, signOut } = useAuth()
   const [workflows, setWorkflows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [aiModeSessionId, setAiModeSessionId] = useState(null)
+  const [aiModeWorkflow, setAiModeWorkflow] = useState(null)
+  const [aiModeLastAction, setAiModeLastAction] = useState(null)
 
   useEffect(() => {
     loadWorkflows()
+
+    // Listen for AI mode activation success
+    socketClient.on('ai-mode:activated', (data) => {
+      console.log('✅ AI Mode activated:', data)
+      onAIModeChange(true)
+      setAiModeSessionId(data.session_id)
+      setAiModeWorkflow(data.workflow)
+    })
+
+    // Listen for AI mode deactivation
+    socketClient.on('ai-mode:deactivated', (data) => {
+      console.log('🛑 AI Mode deactivated:', data)
+      onAIModeChange(false)
+      setAiModeSessionId(null)
+      setAiModeWorkflow(null)
+      setAiModeLastAction(null)
+    })
+
+    // Listen for AI action completions
+    socketClient.on('ai-action:completed', (data) => {
+      console.log('🧠 AI Action:', data)
+      setAiModeLastAction(data)
+      setTimeout(() => setAiModeLastAction(null), 3000)
+    })
+
+    // Listen for errors
+    socketClient.on('ai-mode:error', (data) => {
+      console.error('❌ AI Mode Error:', data)
+      setError(data.message)
+      setTimeout(() => setError(null), 5000)
+    })
+
+    return () => {
+      socketClient.off('ai-mode:activated')
+      socketClient.off('ai-mode:deactivated')
+      socketClient.off('ai-action:completed')
+      socketClient.off('ai-mode:error')
+    }
   }, [])
 
   const loadWorkflows = async () => {
@@ -84,6 +125,28 @@ const WorkflowDashboard = ({ onEditWorkflow, onCreateWorkflow, onWorkflowActivat
       await loadWorkflows()
     } catch (err) {
       alert('Failed to delete workflow: ' + err.message)
+    }
+  }
+
+  const handleToggleAIMode = () => {
+    if (aiModeActive) {
+      // Deactivate
+      socketClient.emit('ai-mode:deactivate')
+    } else {
+      // Activate
+      socketClient.emit('ai-mode:activate', {
+        user_id: user?.id || 'demo-user'
+      })
+
+      // Turn on camera when activating AI Mode
+      if (onWorkflowActivated) {
+        onWorkflowActivated()
+      }
+
+      // Notify Electron to show recording indicator
+      if (window.electronAPI) {
+        window.electronAPI.workflowStarted()
+      }
     }
   }
 
@@ -176,6 +239,96 @@ const WorkflowDashboard = ({ onEditWorkflow, onCreateWorkflow, onWorkflowActivat
           </div>
         ) : (
           <div className="workflows-grid-modern">
+            {/* AI Mode Featured Card - Always first */}
+            <div className={`workflow-card-modern featured ai-mode-card ${aiModeActive ? 'active' : ''}`}>
+              <div className="featured-badge">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/>
+                </svg>
+                Featured
+              </div>
+              <div className="card-content">
+                <div className="card-top">
+                  <div className="card-header-modern">
+                    <h3 className="card-title">
+                      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" style={{ display: 'inline', marginRight: '8px' }}>
+                        <path d="M10 3.5a1.5 1.5 0 013 0V4a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-.5a1.5 1.5 0 000 3h.5a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-.5a1.5 1.5 0 00-3 0v.5a1 1 0 01-1 1H6a1 1 0 01-1-1v-3a1 1 0 00-1-1h-.5a1.5 1.5 0 010-3H4a1 1 0 001-1V6a1 1 0 011-1h3a1 1 0 001-1v-.5z"/>
+                      </svg>
+                      AI Mode
+                    </h3>
+                    {aiModeActive && (
+                      <span className="status-badge active">
+                        <span className="status-dot"></span>
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="card-description">
+                    {aiModeActive
+                      ? 'AI is watching your screen and adapting gestures to context'
+                      : 'Intelligent gesture recognition powered by AI - adapts to your context automatically'
+                    }
+                  </p>
+
+                  {aiModeLastAction && aiModeActive && (
+                    <div style={{
+                      marginTop: '12px',
+                      padding: '10px',
+                      backgroundColor: '#f3f4f6',
+                      borderRadius: '6px',
+                      fontSize: '12px'
+                    }}>
+                      <div style={{ color: '#6b7280', marginBottom: '4px' }}>Last Action:</div>
+                      <div style={{ fontWeight: '600', color: '#1f2937' }}>
+                        {aiModeLastAction.gesture} → {aiModeLastAction.action}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="card-meta-modern">
+                  <div className="meta-item">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M8 4.754a3.246 3.246 0 100 6.492 3.246 3.246 0 000-6.492zM5.754 8a2.246 2.246 0 114.492 0 2.246 2.246 0 01-4.492 0z"/>
+                      <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 01-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 01-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 01.52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 011.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 011.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 01.52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 01-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 01-1.255-.52l-.094-.319z"/>
+                    </svg>
+                    <span>Context-aware</span>
+                  </div>
+                  <div className="meta-item">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M2.5 1a1 1 0 00-1 1v1a1 1 0 001 1H3v9a2 2 0 002 2h6a2 2 0 002-2V4h.5a1 1 0 001-1V2a1 1 0 00-1-1H10a1 1 0 00-1-1H7a1 1 0 00-1 1H2.5zm3 4a.5.5 0 01.5.5v7a.5.5 0 01-1 0v-7a.5.5 0 01.5-.5zM8 5a.5.5 0 01.5.5v7a.5.5 0 01-1 0v-7A.5.5 0 018 5zm3 .5v7a.5.5 0 01-1 0v-7a.5.5 0 011 0z"/>
+                    </svg>
+                    <span>Beta</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card-actions-modern">
+                <button
+                  className={`btn-action ${aiModeActive ? 'warning' : 'primary'}`}
+                  onClick={handleToggleAIMode}
+                  title={aiModeActive ? 'Stop AI Mode' : 'Activate AI Mode'}
+                >
+                  {aiModeActive ? (
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M5 3.5h6A1.5 1.5 0 0112.5 5v6a1.5 1.5 0 01-1.5 1.5H5A1.5 1.5 0 013.5 11V5A1.5 1.5 0 015 3.5z"/>
+                      </svg>
+                      Stop
+                    </>
+                  ) : (
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 010 1.393z"/>
+                      </svg>
+                      Activate
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Regular Workflows */}
             {workflows.map((workflow) => (
               <div key={workflow.id} className={`workflow-card-modern ${workflow.active ? 'active' : ''}`}>
                 <div className="card-content">
