@@ -28,7 +28,7 @@ CORS(app)
 
 # Configure Claude (Anthropic)
 claude_client = anthropic.Anthropic(
-    api_key=os.getenv("ANTHROPIC_API_KEY")
+    api_key=os.getenv("ANTHROPIC_KEY")
 )
 
 # Initialize uAgent with environment variables for Agentverse
