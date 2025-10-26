@@ -1,0 +1,201 @@
+{
+  "gestures": [
+    {
+      "id": "swipe_right",
+      "name": "Swipe Right",
+      "description": "Swipe hand from left to right",
+      "type": "dynamic",
+      "detection": "motion",
+      "confidence_threshold": 0.8
+    },
+    {
+      "id": "swipe_left",
+      "name": "Swipe Left",
+      "description": "Swipe hand from right to left",
+      "type": "dynamic",
+      "detection": "motion",
+      "confidence_threshold": 0.8
+    },
+    {
+      "id": "swipe_up",
+      "name": "Swipe Up",
+      "description": "Swipe hand upward",
+      "type": "dynamic",
+      "detection": "motion",
+      "confidence_threshold": 0.8
+    },
+    {
+      "id": "swipe_down",
+      "name": "Swipe Down",
+      "description": "Swipe hand downward",
+      "type": "dynamic",
+      "detection": "motion",
+      "confidence_threshold": 0.8
+    },
+    {
+      "id": "palm",
+      "name": "Palm (Stop/Click)",
+      "description": "Open palm facing camera",
+      "type": "static",
+      "detection": "pose",
+      "confidence_threshold": 0.85
+    },
+    {
+      "id": "thumbs_up",
+      "name": "Thumbs Up",
+      "description": "Thumbs up gesture",
+      "type": "static",
+      "detection": "pose",
+      "confidence_threshold": 0.85
+    },
+    {
+      "id": "thumbs_down",
+      "name": "Thumbs Down",
+      "description": "Thumbs down gesture",
+      "type": "static",
+      "detection": "pose",
+      "confidence_threshold": 0.85
+    },
+    {
+      "id": "point",
+      "name": "Point (Pointer Finger)",
+      "description": "Index finger pointing up",
+      "type": "static",
+      "detection": "pose",
+      "confidence_threshold": 0.85
+    },
+    {
+      "id": "continuous_motion",
+      "name": "Continuous Motion (Point Held)",
+      "description": "Point gesture held for cursor control",
+      "type": "continuous",
+      "detection": "pose_hold",
+      "confidence_threshold": 0.85
+    },
+    {
+      "id": "peace",
+      "name": "Peace Sign",
+      "description": "Two fingers up (V sign)",
+      "type": "static",
+      "detection": "pose",
+      "confidence_threshold": 0.85
+    }
+  ],
+  "actions": {
+    "keyboard": [
+      {
+        "id": "ArrowRight",
+        "name": "Arrow Right",
+        "description": "Press right arrow key",
+        "common_uses": ["Next slide", "Skip forward", "Navigate right"]
+      },
+      {
+        "id": "ArrowLeft",
+        "name": "Arrow Left",
+        "description": "Press left arrow key",
+        "common_uses": ["Previous slide", "Skip backward", "Navigate left"]
+      },
+      {
+        "id": "ArrowUp",
+        "name": "Arrow Up",
+        "description": "Press up arrow key",
+        "common_uses": ["Volume up", "Scroll up", "Navigate up"]
+      },
+      {
+        "id": "ArrowDown",
+        "name": "Arrow Down",
+        "description": "Press down arrow key",
+        "common_uses": ["Volume down", "Scroll down", "Navigate down"]
+      },
+      {
+        "id": "Space",
+        "name": "Space",
+        "description": "Press spacebar",
+        "common_uses": ["Play/Pause", "Confirm", "Select"]
+      },
+      {
+        "id": "Escape",
+        "name": "Escape",
+        "description": "Press escape key",
+        "common_uses": ["Exit fullscreen", "Close", "Cancel"]
+      },
+      {
+        "id": "Enter",
+        "name": "Enter",
+        "description": "Press enter key",
+        "common_uses": ["Confirm", "Submit", "Next"]
+      },
+      {
+        "id": "f",
+        "name": "F Key",
+        "description": "Press F key",
+        "common_uses": ["Toggle fullscreen"]
+      }
+    ],
+    "mouse": [
+      {
+        "id": "moveCursor",
+        "name": "Move Cursor",
+        "description": "Move mouse cursor based on hand position",
+        "requires_position": true,
+        "common_uses": ["Browse", "Navigate", "Select item"]
+      },
+      {
+        "id": "click",
+        "name": "Left Click",
+        "description": "Left mouse button click",
+        "common_uses": ["Select", "Click button", "Open item"]
+      },
+      {
+        "id": "rightClick",
+        "name": "Right Click",
+        "description": "Right mouse button click",
+        "common_uses": ["Context menu", "Options"]
+      },
+      {
+        "id": "doubleClick",
+        "name": "Double Click",
+        "description": "Double click left mouse button",
+        "common_uses": ["Open file", "Maximize window"]
+      },
+      {
+        "id": "scrollUp",
+        "name": "Scroll Up",
+        "description": "Scroll mouse wheel up",
+        "common_uses": ["Scroll page up", "Zoom in"]
+      },
+      {
+        "id": "scrollDown",
+        "name": "Scroll Down",
+        "description": "Scroll mouse wheel down",
+        "common_uses": ["Scroll page down", "Zoom out"]
+      }
+    ]
+  },
+  "contexts": {
+    "video_player": {
+      "description": "Video streaming platforms during playback",
+      "recommended_gestures": ["swipe_right", "swipe_left", "palm", "thumbs_up", "thumbs_down"],
+      "avoid_gestures": ["continuous_motion"],
+      "platforms": ["Netflix", "YouTube", "Hulu", "Disney+", "Amazon Prime"]
+    },
+    "browse_page": {
+      "description": "Content browsing pages (homepages, catalogs)",
+      "recommended_gestures": ["continuous_motion", "palm", "thumbs_up", "thumbs_down", "swipe_right", "swipe_left"],
+      "avoid_gestures": [],
+      "platforms": ["Netflix Homepage", "YouTube Browse", "Amazon Browse"]
+    },
+    "presentation": {
+      "description": "Presentation software (PowerPoint, Keynote, Google Slides)",
+      "recommended_gestures": ["swipe_right", "swipe_left", "palm", "point", "peace"],
+      "avoid_gestures": ["continuous_motion", "thumbs_up", "thumbs_down"],
+      "platforms": ["PowerPoint", "Keynote", "Google Slides"]
+    },
+    "general": {
+      "description": "General desktop/web browsing",
+      "recommended_gestures": ["continuous_motion", "palm", "swipe_up", "swipe_down"],
+      "avoid_gestures": [],
+      "platforms": ["Browser", "Desktop", "Other"]
+    }
+  }
+}
