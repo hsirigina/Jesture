@@ -328,21 +328,7 @@ const CameraFeed = ({ onGestureDetected }) => {
       let gestureName = null
       const now = Date.now()
 
-      // Helper functions - defined at top to avoid hoisting issues
-      const getGestureCooldown = (gesture) => {
-        if (gesture === 'palm') return 3000 // Palm has 3 second cooldown
-        if (gesture === 'swipe_left' || gesture === 'swipe_right') return 1000 // Swipes 1s
-        return 1000 // Default 1 second for others
-      }
-
-      const isGestureInCooldown = (gesture) => {
-        if (lastTriggeredGestureRef.current.name !== gesture) return false // Different gesture, not in cooldown
-        const timeSince = now - lastTriggeredGestureRef.current.time
-        return timeSince < getGestureCooldown(gesture)
-      }
-
       // PRIORITY 0: Check for SWIPE gestures FIRST (motion-based)
-      let swipeDetected = null
       if (previousHandPositionRef.current) {
         const currentX = wrist.x
         const previousX = previousHandPositionRef.current.x
@@ -353,10 +339,10 @@ const CameraFeed = ({ onGestureDetected }) => {
         // If hand moves more than 5% of screen width in reasonable time = swipe
         if (deltaTime > 20 && deltaTime < 1000) {
           if (deltaX > 0.05) {
-            swipeDetected = 'swipe_right'
+            gestureName = 'swipe_right'
             console.log('🌊🌊🌊 SWIPE RIGHT TRIGGERED!', { deltaX: deltaX.toFixed(3), deltaTime })
           } else if (deltaX < -0.05) {
-            swipeDetected = 'swipe_left'
+            gestureName = 'swipe_left'
             console.log('🌊🌊🌊 SWIPE LEFT TRIGGERED!', { deltaX: deltaX.toFixed(3), deltaTime })
           }
         }
@@ -367,48 +353,6 @@ const CameraFeed = ({ onGestureDetected }) => {
         x: wrist.x,
         y: wrist.y,
         timestamp: now
-      }
-
-      // If we're waiting for a palm/point swipe and we detected a swipe, trigger it immediately
-      if (swipeDetected && palmPointWaitingRef.current) {
-        const waitingGesture = palmPointWaitingRef.current.gesture
-        if (waitingGesture === 'palm' || waitingGesture === 'point') {
-          console.log(`🌀 Swipe interrupted ${waitingGesture} waiting period!`)
-          gestureName = swipeDetected
-          palmPointWaitingRef.current = null
-          gestureHoldStartRef.current = null
-          setHoldProgress({ gesture: null, progress: 0 })
-
-          // Trigger the swipe immediately if this swipe is not in cooldown
-          if (!isGestureInCooldown(swipeDetected)) {
-            console.log('✅ GESTURE TRIGGERED:', gestureName)
-            setDetectedGesture(gestureName)
-
-            if (gestureTimeoutRef.current) {
-              clearTimeout(gestureTimeoutRef.current)
-            }
-
-            gestureTimeoutRef.current = setTimeout(() => {
-              setDetectedGesture(null)
-            }, 2000)
-
-            if (onGestureDetected) {
-              const indexTip = landmarks[8]
-              onGestureDetected(gestureName, 0.9, {
-                x: indexTip.x,
-                y: indexTip.y
-              })
-            }
-
-            lastTriggeredGestureRef.current = { name: gestureName, time: now }
-          }
-          return // Exit early
-        }
-      }
-
-      // Regular swipe (not interrupting palm/point)
-      if (swipeDetected) {
-        gestureName = swipeDetected
       }
 
       // Use fingerpose for static gesture detection (if no swipe)
@@ -444,101 +388,78 @@ const CameraFeed = ({ onGestureDetected }) => {
 
       // HOLD TIME & COOLDOWN LOGIC
       if (gestureName) {
-        const isPalmOrPoint = gestureName === 'palm' || gestureName === 'point'
-        const isInstantGesture = gestureName === 'thumbs_up' || gestureName === 'thumbs_down' || gestureName === 'peace'
+        // Determine hold time: swipes, palm, and point are instant for tracking, others need 2000ms
+        const isSwipeGesture = gestureName === 'swipe_left' || gestureName === 'swipe_right'
+        const isPalmGesture = gestureName === 'palm'
+        const isPointGesture = gestureName === 'point'
+        const requiredHoldTime = (isSwipeGesture || isPalmGesture || isPointGesture) ? 0 : 2000
 
         // Check if this is a new gesture or continuation
         if (gestureHoldStartRef.current?.name === gestureName) {
           // Same gesture continuing
           const holdDuration = now - gestureHoldStartRef.current.startTime
 
-          if (isPalmOrPoint) {
-            // Palm/Point: 1 second waiting period for swipe detection
-            const progress = Math.min(100, (holdDuration / 1000) * 100)
-            setHoldProgress({ gesture: gestureName, progress })
+          // Update progress bar (0-100%)
+          const progress = Math.min(100, (holdDuration / requiredHoldTime) * 100)
+          setHoldProgress({ gesture: gestureName, progress })
 
-            // Track that we're waiting for a swipe
-            palmPointWaitingRef.current = { gesture: gestureName, startTime: gestureHoldStartRef.current.startTime }
+          // Check cooldown period (NO cooldown for palm and point, 500ms for others)
+          const cooldownTime = (isPalmGesture || isPointGesture) ? 0 : 500
+          const timeSinceLastTrigger = now - lastTriggeredGestureRef.current.time
+          const isSameGestureInCooldown =
+            lastTriggeredGestureRef.current.name === gestureName &&
+            timeSinceLastTrigger < cooldownTime
 
-            // After 1 second with no swipe, trigger the palm/point gesture ONCE
-            if (holdDuration >= 1000 && !isGestureInCooldown(gestureName)) {
-              console.log('✅ GESTURE TRIGGERED:', gestureName, `(held for ${holdDuration}ms)`)
+          if (holdDuration >= requiredHoldTime && !isSameGestureInCooldown) {
+            // Gesture held long enough and not in cooldown
+            setDetectedGesture(gestureName)
+            setHoldProgress({ gesture: null, progress: 0 })
 
-              // Trigger palm/point (convert point to continuous_motion for friend's feature)
-              const actualGestureName = gestureName === 'point' ? 'continuous_motion' : gestureName
-              if (gestureName === 'point') {
-                continuousMotionActiveRef.current = true
-              }
-
-              setDetectedGesture(gestureName)
-              setHoldProgress({ gesture: null, progress: 0 })
-              palmPointWaitingRef.current = null
-
-              if (gestureTimeoutRef.current) {
-                clearTimeout(gestureTimeoutRef.current)
-              }
-
-              gestureTimeoutRef.current = setTimeout(() => {
-                setDetectedGesture(null)
-              }, 2000)
-
-              if (onGestureDetected) {
-                const indexTip = landmarks[8]
-                onGestureDetected(actualGestureName, 0.9, {
-                  x: indexTip.x,
-                  y: indexTip.y
-                })
-              }
-
-              lastTriggeredGestureRef.current = { name: gestureName, time: now }
-              gestureHoldStartRef.current = null // Reset so it doesn't re-trigger
+            // Clear previous timeout
+            if (gestureTimeoutRef.current) {
+              clearTimeout(gestureTimeoutRef.current)
             }
-          } else if (isInstantGesture) {
-            // Thumbs up/down, Peace: Instant trigger with per-gesture cooldown
-            if (!isGestureInCooldown(gestureName)) {
-              console.log('✅ GESTURE TRIGGERED (instant):', gestureName)
-              setDetectedGesture(gestureName)
-              setHoldProgress({ gesture: null, progress: 0 })
 
-              if (gestureTimeoutRef.current) {
-                clearTimeout(gestureTimeoutRef.current)
-              }
+            // Hide after 2 seconds
+            gestureTimeoutRef.current = setTimeout(() => {
+              setDetectedGesture(null)
+            }, 2000)
 
-              gestureTimeoutRef.current = setTimeout(() => {
-                setDetectedGesture(null)
-              }, 2000)
+            // Trigger callback with hand position data
+            if (onGestureDetected) {
+              // Get index finger tip position (landmark 8) for cursor tracking
+              const indexTip = landmarks[8]
 
-              if (onGestureDetected) {
-                const indexTip = landmarks[8]
-                onGestureDetected(gestureName, 0.9, {
-                  x: indexTip.x,
-                  y: indexTip.y
-                })
-              }
+              // Convert 'point' gesture to 'continuous_motion' with position tracking
+              const actualGestureName = isPointGesture ? 'continuous_motion' : gestureName
 
-              lastTriggeredGestureRef.current = { name: gestureName, time: now }
-              gestureHoldStartRef.current = null
+              onGestureDetected(actualGestureName, 0.9, {
+                x: indexTip.x,
+                y: indexTip.y
+              })
             }
+
+            // Update last triggered
+            lastTriggeredGestureRef.current = { name: gestureName, time: now }
           }
         } else {
           // New gesture detected, start hold timer
           gestureHoldStartRef.current = { name: gestureName, startTime: now }
-
-          if (isPalmOrPoint) {
-            setHoldProgress({ gesture: gestureName, progress: 0 })
-            palmPointWaitingRef.current = { gesture: gestureName, startTime: now }
-            console.log('👁️ Palm/Point waiting for swipe:', gestureName)
-          } else if (isInstantGesture) {
-            console.log('👁️ Instant gesture detected:', gestureName)
-          }
+          setHoldProgress({ gesture: gestureName, progress: 0 })
+          console.log('👁️ Gesture candidate:', gestureName)
         }
       } else {
         // No gesture detected, reset hold timer and progress
         gestureHoldStartRef.current = null
-        palmPointWaitingRef.current = null
         setHoldProgress({ gesture: null, progress: 0 })
 
-        // Reset tracking if point was being tracked (for continuous motion feature)
+        // Reset tracking if palm or point was being tracked
+        if (lastTriggeredGestureRef.current.name === 'palm') {
+          // Send reset signal to server
+          if (onGestureDetected) {
+            onGestureDetected('palm_release', 0, null)
+          }
+        }
         if (lastTriggeredGestureRef.current.name === 'point') {
           // Send reset signal for continuous motion
           continuousMotionActiveRef.current = false // Clear lock
@@ -546,7 +467,6 @@ const CameraFeed = ({ onGestureDetected }) => {
             onGestureDetected('continuous_motion_release', 0, null)
           }
         }
-        // Note: palm_release removed - it was causing double-triggering in AI Mode
       }
     }
 
