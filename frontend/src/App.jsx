@@ -5,6 +5,7 @@ import ControlBar from './components/ControlBar'
 import Auth from './components/Auth'
 import WorkflowDashboard from './components/WorkflowDashboard'
 import WorkflowCanvas from './components/WorkflowCanvas'
+import AIMode from './components/AIMode'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import socketClient from './services/socketClient'
 import { workflowService } from './services/workflowService'
@@ -382,6 +383,13 @@ function AppContent() {
           </div>
         </div>
       </div>
+
+      {/* AI Mode floating panel */}
+      <AIMode
+        isGestureDetectionActive={cameraActive}
+        aiModeActive={aiModeActive}
+        onAIModeChange={setAiModeActive}
+      />
     </div>
   )
 }

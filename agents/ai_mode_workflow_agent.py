@@ -60,10 +60,16 @@ def get_active_window_context():
 
     try:
         if system == "Darwin":  # macOS
+            # Get all visible apps, excluding Electron (the Jesture app itself)
             script = '''
             tell application "System Events"
-                set frontApp to name of first application process whose frontmost is true
-                return frontApp
+                set visibleApps to name of every application process whose visible is true
+                repeat with appName in visibleApps
+                    if appName is not "Electron" then
+                        return appName
+                    end if
+                end repeat
+                return "Unknown"
             end tell
             '''
             result = subprocess.run(
@@ -273,7 +279,7 @@ Generate the workflow now. Return ONLY the JSON, no markdown formatting."""
 
     try:
         response = claude_client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-5",  # Latest model
             max_tokens=2000,
             messages=[
                 {"role": "user", "content": prompt}
@@ -455,7 +461,7 @@ def activate_ai_mode():
 
 @app.route('/gesture', methods=['POST'])
 def handle_gesture():
-    """Process gesture using active workflow"""
+    """Process gesture using active workflow (auto-detects context changes)"""
     data = request.json
     gesture = data.get('gesture')
     confidence = data.get('confidence', 1.0)
@@ -471,8 +477,47 @@ def handle_gesture():
             "message": "No active AI Mode session"
         }), 400
 
-    # Get workflow
-    workflow = session.get('workflow')
+    # 🔄 CHECK IF CONTEXT CHANGED - Dynamically update workflow!
+    current_context = get_active_window_context()
+    current_context_key = f"{current_context['context_type']}:{current_context['page_context']}"
+    old_context_key = session.get('context_key', '')
+
+    # If context changed, update workflow
+    if current_context_key != old_context_key:
+        print(f"🔄 Context changed: {old_context_key} → {current_context_key}")
+
+        # Check if we have a cached workflow for this new context
+        if current_context_key in workflow_cache:
+            print(f"✅ Switching to cached workflow for {current_context_key}")
+            workflow = workflow_cache[current_context_key]
+        else:
+            print(f"🧠 Generating new workflow for {current_context_key}")
+            # Query MCP Hub
+            gesture_data = get_gestures_for_context(current_context['context_type'])
+            available_gestures = gesture_data.get('recommended_gestures', []) if gesture_data else []
+            available_actions = get_all_actions()
+
+            # Generate workflow
+            workflow = generate_workflow_with_claude(current_context, available_gestures, available_actions)
+            if not workflow:
+                workflow = create_fallback_workflow(current_context, available_gestures)
+
+            # Add metadata and cache
+            workflow['context_type'] = current_context['context_type']
+            workflow['page_context'] = current_context['page_context']
+            workflow['generated_at'] = datetime.utcnow().isoformat()
+            workflow['generated_by'] = 'ai'
+            workflow['context_key'] = current_context_key
+            workflow_cache[current_context_key] = workflow
+
+        # Update session with new workflow
+        session['context_key'] = current_context_key
+        session['workflow'] = workflow
+        print(f"✅ Workflow updated: {workflow['workflow_name']}")
+    else:
+        # Context hasn't changed, use existing workflow
+        workflow = session.get('workflow')
+
     if not workflow:
         return jsonify({
             "success": False,
