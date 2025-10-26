@@ -181,7 +181,7 @@ const WorkflowDashboard = ({ onEditWorkflow, onCreateWorkflow, onWorkflowActivat
       {/* Top Navigation Bar */}
       <nav className="dashboard-nav">
         <div className="nav-left">
-          <h1 className="nav-logo">GestureThing</h1>
+          <h1 className="nav-logo">Jesture</h1>
           <span className="nav-divider"></span>
           <span className="nav-section-title">Workflows</span>
         </div>

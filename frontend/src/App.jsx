@@ -259,7 +259,7 @@ function AppContent() {
       <div className="container">
         <header className="header">
           <div className="logo">
-            GestureThing
+            Jesture
             <span style={{
               marginLeft: '0.5rem',
               fontSize: '0.625rem',

@@ -190,7 +190,7 @@
 
 .react-flow__node-input {
   border-color: #d1fae5;
-  background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+  background: #ffffff;
 }
 
 .react-flow__node-input.selected {
@@ -445,7 +445,7 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #8FAD88 0%, #7F9C96 100%);
+  background: #7F9C96;
   border: 3px solid white;
   box-shadow: 0 4px 12px rgba(127, 156, 150, 0.35);
   display: flex;
@@ -528,7 +528,7 @@
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #2B5A79 0%, #1B4079 100%);
+  background: #1B4079;
   border: 3px solid white;
   box-shadow: 0 4px 12px rgba(27, 64, 121, 0.35), 0 0 0 4px rgba(27, 64, 121, 0.15);
   display: flex;
@@ -581,7 +581,7 @@
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #D4E494 0%, #C7DB94 100%);
+  background: #C7DB94;
   border: 3px solid white;
   box-shadow: 0 4px 12px rgba(199, 219, 148, 0.35), 0 0 0 4px rgba(199, 219, 148, 0.15);
   display: flex;
