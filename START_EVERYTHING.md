@@ -1,5 +1,45 @@
 # 🚀 How to Start the Complete Jesture Application
 
+## 🔧 First Time Setup (Required API Keys)
+
+Your friend will need to set up these API keys before running:
+
+### 1. Agentverse API Key
+- **Get it**: [https://agentverse.ai](https://agentverse.ai) → Profile → API Keys
+- **Cost**: Free
+- **Used for**: Connecting AI agents to Fetch.ai Agentverse Mailbox
+
+### 2. Claude API Key
+- **Get it**: [https://console.anthropic.com](https://console.anthropic.com) → API Keys
+- **Cost**: Pay-as-you-go (~$0.01 per workflow)
+- **Used for**: AI Mode intelligent workflow generation
+
+### 3. Setup Environment File
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and add your keys:
+AGENTVERSE_KEY=your_agentverse_key_here
+MCP_HUB_SEED="any_unique_string_for_mcp_hub"
+WORKFLOW_AGENT_SEED="any_unique_string_for_workflow_agent"
+ANTHROPIC_API_KEY=sk-ant-api03-your_key_here
+```
+
+### 4. Install Dependencies
+```bash
+# Python dependencies (for agents)
+pip3 install uagents anthropic flask flask-cors
+
+# Frontend dependencies
+cd frontend && npm install
+
+# Server dependencies
+cd ../server && npm install
+```
+
+---
+
 ## Full Startup Process (4 terminals needed)
 
 ### Terminal 1: Start AI Agents

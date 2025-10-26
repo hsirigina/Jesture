@@ -654,11 +654,15 @@ io.on('connection', (socket) => {
       const sessionId = `ai-session-${Date.now()}`
 
       // Send activation request to AI Workflow Agent (generates context-aware workflow)
+      // ALWAYS use a consistent user_id for AI Mode across all socket connections
+      const userId = 'ai-mode-user'
+      console.log(`📝 Activating with user_id: ${userId}, session_id: ${sessionId}`)
+
       const response = await fetch(`${AI_WORKFLOW_AGENT_URL}/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: data.user_id || socket.id,
+          user_id: userId,
           session_id: sessionId
         })
       })
@@ -787,13 +791,18 @@ io.on('connection', (socket) => {
 
     // For all other gestures, query AI Workflow Agent
     try {
+      // Use same consistent user_id as activation
+      const userId = 'ai-mode-user'
+      console.log(`📤 Sending gesture with user_id: ${userId}, session_id: ${aiModeSessionId}`)
+
       const response = await fetch(`${AI_WORKFLOW_AGENT_URL}/gesture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           gesture: data.gesture,
           confidence: data.confidence,
-          user_id: socket.id,
+          user_id: userId,
+          session_id: aiModeSessionId,  // Include session ID
           timestamp: new Date().toISOString()
         })
       })
@@ -882,10 +891,15 @@ io.on('connection', (socket) => {
         // Gesture not mapped in current workflow - silently ignore
         console.log(`⚠️  Gesture '${data.gesture}' not mapped in current workflow`)
       } else {
-        throw new Error('AI Workflow Agent error')
+        console.error(`❌ Unexpected response status: ${response.status}`)
+        const errorText = await response.text()
+        console.error(`❌ Response body: ${errorText}`)
+        throw new Error(`AI Workflow Agent error: ${response.status}`)
       }
     } catch (error) {
       console.error('❌ AI gesture processing failed:', error.message)
+      console.error('❌ Full error:', error)
+      console.error('❌ Error stack:', error.stack)
       socket.emit('ai-mode:error', {
         message: 'Failed to process gesture with AI Workflow Agent'
       })
